@@ -1,0 +1,33 @@
+# --- Directorios de Gradle y Compilación ---
+.gradle
+build/
+bin/
+out/
+.kotlin/
+
+# --- Archivos de configuración de IDEs ---
+.idea
+*.iws
+*.iml
+*.ipr
+.vscode/
+.classpath
+.project
+.settings
+.factorypath
+
+# --- Específico de VE ABSOLUTA ---
+/uploads/
+*.log
+
+# --- SECCIÓN PYTHON (Para tu carpeta ai_engine) ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/.venv/
+**/venv/
+**/env/
+
+# --- Otros ---
+.DS_Store
+HELP.md

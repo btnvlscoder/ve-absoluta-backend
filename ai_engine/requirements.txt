@@ -1,0 +1,5 @@
+# ai_engine/requirements.txt
+numpy
+opencv-python
+pillow
+# Agrega aquí cualquier otra librería que use tu detector.py
