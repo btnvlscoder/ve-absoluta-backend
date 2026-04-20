@@ -8,7 +8,7 @@ Sistema de detección de imágenes generadas por Inteligencia Artificial.
 
 
 
-\## 🚀 Tecnologías
+\## Tecnologías
 
 \* \*\*Lenguaje:\*\* Kotlin + Java 25
 
@@ -20,7 +20,7 @@ Sistema de detección de imágenes generadas por Inteligencia Artificial.
 
 
 
-\## 🛠️ Instalación
+\## Instalación
 
 1\. Clonar el repositorio.
 
