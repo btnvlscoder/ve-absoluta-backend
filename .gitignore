@@ -1,6 +1,7 @@
 # --- Directorios de Gradle y Compilación ---
 .gradle
 build/
+target/
 bin/
 out/
 .kotlin/
@@ -16,11 +17,19 @@ out/
 .settings
 .factorypath
 
-# --- Específico de VE ABSOLUTA ---
+# --- Específico de VE ABSOLUTA (Backend) ---
 /uploads/
 *.log
 
-# --- SECCIÓN PYTHON (Para tu carpeta ai_engine) ---
+# --- SECCIÓN IA (IMPORTANTE) ---
+# Ignoramos los datasets pesados (4GB+)
+ai_engine/datasets/
+
+# Ignoramos el modelo pesado (GitHub no permite archivos >100MB fácilmente)
+# Este lo pasas por Google Drive
+ai_engine/models/*.pth
+
+# --- SECCIÓN PYTHON ---
 **/__pycache__/
 **/*.py[cod]
 **/*$py.class
