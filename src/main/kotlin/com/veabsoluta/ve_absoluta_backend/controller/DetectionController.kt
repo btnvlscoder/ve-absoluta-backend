@@ -1,35 +1,39 @@
 package com.veabsoluta.ve_absoluta_backend.controller
 
+import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.*
+import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/deteccion")
-@CrossOrigin(origins = ["http://localhost:3000"]) // Permiso para que React pueda conectar
+@CrossOrigin(origins = ["*"])
 class DetectionController(private val analisisService: AnalisisService) {
 
-    @PostMapping("/upload")
-    fun subirImagen(@RequestParam("file") file: MultipartFile): ResponseEntity<Any> {
-        return try {
-            // Creamos un nombre único para que no se pisen las imágenes
-            val fileName = "${UUID.randomUUID()}_${file.originalFilename}"
-            val path = Paths.get("uploads/").resolve(fileName)
-            
-            // Creamos la carpeta si no existe y guardamos los bytes de la imagen
-            Files.createDirectories(path.parent)
-            Files.write(path, file.bytes)
+    private val uploadDir = "uploads"
 
-            // Pasamos la pelota al servicio para que procese con la IA
-            val resultado = analisisService.procesarAnalisis(path, fileName)
-            ResponseEntity.ok(resultado)
+    @PostMapping("/upload")
+    fun uploadImage(@RequestParam("file") file: MultipartFile): ResponseEntity<Any> {
+        return try {
+            val path = Paths.get(uploadDir)
+            if (!Files.exists(path)) Files.createDirectories(path)
+
+            val originalName = file.originalFilename ?: "imagen_desconocida.jpg"
+            val uniqueFileName = "${UUID.randomUUID()}_$originalName"
+            val filePath = path.resolve(uniqueFileName)
+            
+            Files.copy(file.inputStream, filePath)
+
+            // Llamamos al servicio pasando la ruta física y el nombre original para la BD
+            val resultadoBd = analisisService.ejecutarDeteccion(filePath.toAbsolutePath().toString(), originalName)
+            
+            ResponseEntity.ok(resultadoBd)
         } catch (e: Exception) {
-            // Si algo explota, avisamos al frontend
-            ResponseEntity.internalServerError().body("Error al subir: ${e.message}")
+            ResponseEntity.internalServerError().body(mapOf("error" to e.message))
         }
     }
 }
