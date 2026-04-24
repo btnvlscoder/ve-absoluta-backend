@@ -1,35 +1,30 @@
 package com.veabsoluta.ve_absoluta_backend.controller
 
-import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
+import com.veabsoluta.ve_absoluta_backend.service.CloudinaryService // IMPORT NUEVO
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
-import java.nio.file.Files
-import java.nio.file.Paths
-import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/deteccion")
 @CrossOrigin(origins = ["*"])
-class DetectionController(private val analisisService: AnalisisService) {
-
-    private val uploadDir = "uploads"
+class DetectionController(
+    private val analisisService: AnalisisService,
+    private val cloudinaryService: CloudinaryService // INYECCIÓN ACTUALIZADA
+) {
 
     @PostMapping("/upload")
     fun uploadImage(@RequestParam("file") file: MultipartFile): ResponseEntity<Any> {
         return try {
-            val path = Paths.get(uploadDir)
-            if (!Files.exists(path)) Files.createDirectories(path)
+            // 1. Sube a la nube y obtiene la URL de Cloudinary (ej: https://res.cloudinary.com/...)
+            val urlArchivo = cloudinaryService.subirArchivo(file)
 
-            val originalName = file.originalFilename ?: "imagen_desconocida.jpg"
-            val uniqueFileName = "${UUID.randomUUID()}_$originalName"
-            val filePath = path.resolve(uniqueFileName)
-            
-            Files.copy(file.inputStream, filePath)
-
-            // Llamamos al servicio pasando la ruta física y el nombre original para la BD
-            val resultadoBd = analisisService.ejecutarDeteccion(filePath.toAbsolutePath().toString(), originalName)
+            // 2. Envía esa URL al motor de IA en Hugging Face
+            val resultadoBd = analisisService.ejecutarDeteccion(
+                rutaImagen = urlArchivo,
+                nombreArchivo = file.originalFilename ?: "desconocido.mp4"
+            )
             
             ResponseEntity.ok(resultadoBd)
         } catch (e: Exception) {

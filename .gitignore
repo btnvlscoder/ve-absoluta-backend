@@ -40,3 +40,4 @@ ai_engine/models/*.pth
 # --- Otros ---
 .DS_Store
 HELP.md
+**/application.properties

@@ -35,6 +35,15 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
+    // Object Storage (MinIO / S3 compatible)
+    implementation("software.amazon.awssdk:s3:2.29.0")
+
+    // HTTP Client para inferencia en la nube
+    implementation("org.springframework.boot:spring-boot-starter-webflux") // WebClient reactivo
+
+    //Cloudinary
+    implementation("com.cloudinary:cloudinary-http44:1.36.0")
+
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 
     // Testing

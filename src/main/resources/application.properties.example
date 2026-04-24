@@ -1,0 +1,37 @@
+# =====================================================================
+# ARCHIVO DE EJEMPLO PARA DESARROLLO LOCAL
+# =====================================================================
+# INSTRUCCIONES:
+# 1. Copia este archivo y renómbralo a 'application.properties'.
+# 2. Reemplaza las variables ${...} con tus credenciales locales o 
+#    configura las variables de entorno en tu IDE (IntelliJ/Eclipse).
+# 3. NUNCA subas el 'application.properties' real a GitHub.
+# =====================================================================
+
+# ============================================
+# CONFIGURACIÓN GENERAL
+# ============================================
+server.port=${PORT:8080}
+
+# ============================================
+# BASE DE DATOS (NEON)
+# ============================================
+spring.datasource.url=${DATABASE_URL}
+spring.datasource.username=${DATABASE_USER}
+spring.datasource.password=${DATABASE_PASSWORD}
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.hibernate.ddl-auto=update
+
+# ============================================
+# CLOUDINARY (Object Storage)
+# ============================================
+cloudinary.cloud-name=${CLOUDINARY_CLOUD_NAME}
+cloudinary.api-key=${CLOUDINARY_API_KEY}
+cloudinary.api-secret=${CLOUDINARY_API_SECRET}
+
+# ============================================
+# INFERENCIA
+# ============================================
+inference.mode=cloud
