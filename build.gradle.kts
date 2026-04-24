@@ -60,13 +60,15 @@ kotlin {
 
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
+        // Alineado a Java 17 para Render
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
 tasks.withType<JavaCompile> {
-    sourceCompatibility = "21"
-    targetCompatibility = "21"
+    // Alineado a Java 17 para Render
+    sourceCompatibility = "17"
+    targetCompatibility = "17"
 }
 
 allOpen {
