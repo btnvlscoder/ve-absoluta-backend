@@ -8,7 +8,7 @@ import org.springframework.web.multipart.MultipartFile
 
 @RestController
 @RequestMapping("/api/v1/deteccion")
-@CrossOrigin(origins = ["*"])
+@CrossOrigin(origins = ["*"], allowedHeaders = ["*"])
 class DetectionController(
     private val analisisService: AnalisisService,
     private val cloudinaryService: CloudinaryService // INYECCIÓN ACTUALIZADA
