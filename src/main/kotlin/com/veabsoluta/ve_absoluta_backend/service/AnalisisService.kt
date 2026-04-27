@@ -88,6 +88,7 @@ class AnalisisService(
 
         // Empaquetamos el archivo para Gradio 4
         val fileData = mapOf(
+            "path" to rutaImagen,
             "url" to rutaImagen,
             "meta" to mapOf("_type" to "gradio.FileData")
         )
