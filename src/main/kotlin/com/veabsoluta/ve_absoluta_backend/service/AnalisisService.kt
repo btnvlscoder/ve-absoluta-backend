@@ -3,6 +3,7 @@ package com.veabsoluta.ve_absoluta_backend.service
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
 import com.veabsoluta.ve_absoluta_backend.dto.GradioResponse
+import com.veabsoluta.ve_absoluta_backend.dto.GradioOutput // <-- ¡ESTE ERA EL IMPORT QUE FALTABA!
 import com.veabsoluta.ve_absoluta_backend.dto.PythonResponse
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
@@ -72,7 +73,7 @@ class AnalisisService(
         }
     }
 
-/**
+    /**
      * Inferencia en la nube: Conecta con la API de Gradio 4 (Arquitectura de Eventos Asíncronos).
      */
     private fun ejecutarDeteccionCloud(rutaImagen: String, nombreArchivo: String): Analisis {
