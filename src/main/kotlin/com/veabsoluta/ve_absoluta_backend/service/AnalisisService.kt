@@ -92,7 +92,7 @@ class AnalisisService(
 
         try {
             // Reemplaza "TU_USUARIO" por tu username de Hugging Face
-            val hfEndpoint = "https://TU_USUARIO-ve-absoluta-api.hf.space/api/predict"
+            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/api/predict"
 
             // 3. Disparar el HTTP POST a la nube
             val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
