@@ -73,11 +73,10 @@ class AnalisisService(
     }
 
 /**
-     * Inferencia en la nube: Conecta con la API de Gradio 4 en Hugging Face.
+     * Inferencia en la nube: Conecta con la API de Gradio 4 (Arquitectura de Eventos Asíncronos).
      */
     private fun ejecutarDeteccionCloud(rutaImagen: String, nombreArchivo: String): Analisis {
         val restTemplate = RestTemplate()
-        
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_JSON
         
@@ -86,37 +85,71 @@ class AnalisisService(
             headers.setBearerAuth(token)
         }
 
-        // 4: Mandar la URL como un objeto FileData
+        // Empaquetamos el archivo para Gradio 4
         val fileData = mapOf(
             "url" to rutaImagen,
             "meta" to mapOf("_type" to "gradio.FileData")
         )
-        
-        // Empaquetamos en el arreglo 'data'
         val body = mapOf("data" to listOf(fileData))
         val request = HttpEntity(body, headers)
 
         try {
-            // LA URL DEFINITIVA: Gradio 4 usa el prefijo /gradio_api/run/
-            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/gradio_api/run/predecir_imagen"
+            // ==========================================
+            // PASO 1: Tomar un ticket en la cola de IA
+            // ==========================================
+            val callEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/gradio_api/call/predecir_imagen"
+            val callResponse = restTemplate.postForObject(callEndpoint, request, Map::class.java)
+            
+            val eventId = callResponse?.get("event_id") as? String 
+                ?: throw RuntimeException("Hugging Face no nos dio un ticket de atención (event_id)")
 
-            val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
+            // ==========================================
+            // PASO 2: Escuchar el evento hasta que termine
+            // ==========================================
+            val streamEndpoint = "$callEndpoint/$eventId"
+            val streamRequest = HttpEntity<Any>(headers)
+            
+            // Hacemos un GET y nos quedamos esperando el stream de eventos
+            val streamResponse = restTemplate.exchange(
+                streamEndpoint, 
+                org.springframework.http.HttpMethod.GET, 
+                streamRequest, 
+                String::class.java
+            )
+            
+            val sseResult = streamResponse.body ?: throw RuntimeException("El servidor de IA no respondió datos")
 
-            val iaResult = response?.data?.firstOrNull() 
-                ?: throw RuntimeException("Hugging Face no devolvió una respuesta válida")
+            // ==========================================
+            // PASO 3: Leer el veredicto final
+            // ==========================================
+            if (!sseResult.contains("event: complete")) {
+                throw RuntimeException("El análisis fue interrumpido por Hugging Face: \n$sseResult")
+            }
+
+            // Extraemos la línea "data: [...]" que viene justo después de "event: complete"
+            val dataLine = sseResult.substringAfter("event: complete")
+                                    .lines()
+                                    .find { it.startsWith("data:") }
+                                    ?.removePrefix("data:")?.trim()
+                ?: throw RuntimeException("No se encontró el JSON final en el stream")
+
+            // Traducimos el JSON usando el módulo de Kotlin
+            val resultList: List<GradioOutput> = mapper.readValue(dataLine)
+            val iaResult = resultList.firstOrNull() 
+                ?: throw RuntimeException("La IA no devolvió predicciones válidas")
 
             val nuevoRegistro = Analisis(
                 nombreArchivo = nombreArchivo,
                 rutaArchivo = rutaImagen,
-                prediccion = iaResult.valorPrediccion, // Usa el getter blindado
-                confianza = iaResult.valorConfianza    // Usa el getter blindado
+                prediccion = iaResult.valorPrediccion,
+                confianza = iaResult.valorConfianza
             )
 
             return analisisRepository.save(nuevoRegistro)
             
         } catch (e: Exception) {
             println("DETALLE ERROR CLOUD: ${e.message}")
-            throw RuntimeException("Fallo la comunicación con el servicio de IA: ${e.message}")
+            throw RuntimeException("Fallo la comunicación asíncrona con IA: ${e.message}")
         }
     }
 }
