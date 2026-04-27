@@ -94,7 +94,7 @@ class AnalisisService(
 
         try {
             // EL ARREGLO 2: Cambiamos /api/predict por /run/predict
-            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/run/predict"
+            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/run/predecir_imagen"
 
             // 3. Ejecución de la petición POST
             val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
