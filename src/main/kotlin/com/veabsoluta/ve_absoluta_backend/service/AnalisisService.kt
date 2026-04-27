@@ -73,42 +73,43 @@ class AnalisisService(
     }
 
 /**
-     * Inferencia en la nube: Conecta con la API de Gradio en Hugging Face.
+     * Inferencia en la nube: Conecta con la API de Gradio 4 en Hugging Face.
      */
     private fun ejecutarDeteccionCloud(rutaImagen: String, nombreArchivo: String): Analisis {
         val restTemplate = RestTemplate()
         
-        // 1. Configuración de encabezados
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_JSON
         
-        // EL ARREGLO 1: Le pasamos tu token de seguridad directamente desde Render
         val token = System.getenv("HF_TOKEN")
         if (!token.isNullOrBlank()) {
             headers.setBearerAuth(token)
         }
 
-        // 2. Definición del cuerpo siguiendo el estándar de Gradio
-        val body = mapOf("data" to listOf(rutaImagen))
+        // 4: Mandar la URL como un objeto FileData
+        val fileData = mapOf(
+            "url" to rutaImagen,
+            "meta" to mapOf("_type" to "gradio.FileData")
+        )
+        
+        // Empaquetamos en el arreglo 'data'
+        val body = mapOf("data" to listOf(fileData))
         val request = HttpEntity(body, headers)
 
         try {
-            // EL ARREGLO 2: Cambiamos /api/predict por /run/predict
-            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/api/predecir_imagen"
+            // LA URL DEFINITIVA: Gradio 4 usa el prefijo /gradio_api/run/
+            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/gradio_api/run/predecir_imagen"
 
-            // 3. Ejecución de la petición POST
             val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
 
-            // 4. Extracción segura del resultado
             val iaResult = response?.data?.firstOrNull() 
                 ?: throw RuntimeException("Hugging Face no devolvió una respuesta válida")
 
-            // 5. Creación y persistencia
             val nuevoRegistro = Analisis(
                 nombreArchivo = nombreArchivo,
                 rutaArchivo = rutaImagen,
-                prediccion = iaResult.label,
-                confianza = iaResult.valorConfianza
+                prediccion = iaResult.valorPrediccion, // Usa el getter blindado
+                confianza = iaResult.valorConfianza    // Usa el getter blindado
             )
 
             return analisisRepository.save(nuevoRegistro)

@@ -5,10 +5,16 @@ data class GradioResponse(
 )
 
 data class GradioOutput(
-    val label: String,
+    val prediccion: String? = null,
+    val label: String? = null,
     val confianza: Double? = null,
     val score: Double? = null
 ) {
+    // Getter inteligente para la predicción
+    val valorPrediccion: String
+        get() = prediccion ?: label ?: "Desconocido"
+
+    // Getter inteligente para la confianza
     val valorConfianza: Double
         get() = confianza ?: score ?: 0.0
 }
