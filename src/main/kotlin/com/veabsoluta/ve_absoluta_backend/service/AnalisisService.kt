@@ -72,7 +72,7 @@ class AnalisisService(
         }
     }
 
-    /**
+/**
      * Inferencia en la nube: Conecta con la API de Gradio en Hugging Face.
      */
     private fun ejecutarDeteccionCloud(rutaImagen: String, nombreArchivo: String): Analisis {
@@ -81,23 +81,29 @@ class AnalisisService(
         // 1. Configuración de encabezados
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_JSON
+        
+        // EL ARREGLO 1: Le pasamos tu token de seguridad directamente desde Render
+        val token = System.getenv("HF_TOKEN")
+        if (!token.isNullOrBlank()) {
+            headers.setBearerAuth(token)
+        }
 
-        // 2. Definición del cuerpo siguiendo el estándar de Gradio { "data": [ "valor" ] }
+        // 2. Definición del cuerpo siguiendo el estándar de Gradio
         val body = mapOf("data" to listOf(rutaImagen))
         val request = HttpEntity(body, headers)
 
         try {
-            // URL del Space de Hugging Face
-            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/api/predict"
+            // EL ARREGLO 2: Cambiamos /api/predict por /run/predict
+            val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/run/predict"
 
             // 3. Ejecución de la petición POST
             val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
 
-            // 4. Extracción segura del resultado desde la lista 'data'
+            // 4. Extracción segura del resultado
             val iaResult = response?.data?.firstOrNull() 
                 ?: throw RuntimeException("Hugging Face no devolvió una respuesta válida")
 
-            // 5. Creación y persistencia del objeto Analisis
+            // 5. Creación y persistencia
             val nuevoRegistro = Analisis(
                 nombreArchivo = nombreArchivo,
                 rutaArchivo = rutaImagen,
@@ -108,7 +114,6 @@ class AnalisisService(
             return analisisRepository.save(nuevoRegistro)
             
         } catch (e: Exception) {
-            // Log para depuración en la consola de Render
             println("DETALLE ERROR CLOUD: ${e.message}")
             throw RuntimeException("Fallo la comunicación con el servicio de IA: ${e.message}")
         }
