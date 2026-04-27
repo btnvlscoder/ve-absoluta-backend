@@ -2,6 +2,8 @@ package com.veabsoluta.ve_absoluta_backend.service
 
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
+import com.veabsoluta.ve_absoluta_backend.dto.GradioResponse
+import com.veabsoluta.ve_absoluta_backend.dto.PythonResponse
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.springframework.beans.factory.annotation.Value
@@ -11,13 +13,10 @@ import org.springframework.web.client.RestTemplate
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
+
 /**
  * Servicio de orquestación para detección de deepfakes.
- * 
- * Maneja el flujo completo:
- * 1. Recibe URL del archivo en MinIO
- * 2. Ejecuta inferencia (local o cloud)
- * 3. Persiste resultado en PostgreSQL
+ * Maneja la lógica de inferencia tanto local (Python) como en la nube (Hugging Face).
  */
 @Service
 class AnalisisService(
@@ -27,13 +26,10 @@ class AnalisisService(
     private val mapper = jacksonObjectMapper()
 
     @Value("\${inference.mode:local}")
-    private lateinit var inferenceMode: String  // "local" o "cloud"
+    private lateinit var inferenceMode: String
 
     /**
-     * Ejecuta el flujo completo de detección.
-     * 
-     * @param rutaImagen URL del archivo en MinIO (o ruta local si es modo local)
-     * @param nombreArchivo Nombre original del archivo
+     * Punto de entrada principal para el análisis.
      */
     fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): Analisis {
         return when (inferenceMode) {
@@ -43,7 +39,7 @@ class AnalisisService(
     }
 
     /**
-     * Inferencia local (usa ProcessBuilder con Python local)
+     * Inferencia local: Llama al script de Python mediante ProcessBuilder.
      */
     private fun ejecutarDeteccionLocal(rutaImagen: String, nombreArchivo: String): Analisis {
         val pythonPath = File(".venv/Scripts/python.exe").absolutePath
@@ -62,75 +58,59 @@ class AnalisisService(
 
                 val nuevoRegistro = Analisis(
                     nombreArchivo = nombreArchivo,
-                    rutaArchivo = rutaImagen,  // URL del archivo en MinIO
+                    rutaArchivo = rutaImagen,
                     prediccion = pythonResult.prediction,
                     confianza = pythonResult.confidence
                 )
 
                 return analisisRepository.save(nuevoRegistro)
             } else {
-                throw RuntimeException("Error en Python: $output")
+                throw RuntimeException("Error en el motor local de Python: $output")
             }
         } catch (e: Exception) {
-            throw RuntimeException("Fallo al ejecutar el análisis: ${e.message}")
+            throw RuntimeException("Fallo al ejecutar el análisis local: ${e.message}")
         }
     }
 
     /**
-     * Inferencia en la nube (Llamada HTTP a Hugging Face / Gradio)
+     * Inferencia en la nube: Conecta con la API de Gradio en Hugging Face.
      */
     private fun ejecutarDeteccionCloud(rutaImagen: String, nombreArchivo: String): Analisis {
         val restTemplate = RestTemplate()
         
-        // 1. Armar los headers
+        // 1. Configuración de encabezados
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_JSON
 
-        // 2. Empaquetar la petición como Gradio lo exige: { "data": [ "url" ] }
+        // 2. Definición del cuerpo siguiendo el estándar de Gradio { "data": [ "valor" ] }
         val body = mapOf("data" to listOf(rutaImagen))
         val request = HttpEntity(body, headers)
 
         try {
-            // Reemplaza "TU_USUARIO" por tu username de Hugging Face
+            // URL del Space de Hugging Face
             val hfEndpoint = "https://btnvlscoder-ve-absoluta-api.hf.space/api/predict"
 
-            // 3. Disparar el HTTP POST a la nube
+            // 3. Ejecución de la petición POST
             val response = restTemplate.postForObject(hfEndpoint, request, GradioResponse::class.java)
 
-            // 4. Extraer nuestro JSON desde el arreglo 'data' de Gradio
+            // 4. Extracción segura del resultado desde la lista 'data'
             val iaResult = response?.data?.firstOrNull() 
-                ?: throw RuntimeException("El servidor de IA no devolvió datos válidos")
+                ?: throw RuntimeException("Hugging Face no devolvió una respuesta válida")
 
-            // 5. Persistir en PostgreSQL (Neon)
+            // 5. Creación y persistencia del objeto Analisis
             val nuevoRegistro = Analisis(
                 nombreArchivo = nombreArchivo,
-                rutaArchivo = rutaImagen, // Guardamos la URL pública de MinIO/S3
-                prediccion = iaResult.prediccion,
-                confianza = iaResult.confianza
+                rutaArchivo = rutaImagen,
+                prediccion = iaResult.label,
+                confianza = iaResult.valorConfianza
             )
 
             return analisisRepository.save(nuevoRegistro)
             
         } catch (e: Exception) {
-            throw RuntimeException("Fallo la comunicación con Hugging Face: ${e.message}")
+            // Log para depuración en la consola de Render
+            println("DETALLE ERROR CLOUD: ${e.message}")
+            throw RuntimeException("Fallo la comunicación con el servicio de IA: ${e.message}")
         }
     }
 }
-
-// ==========================================
-// DTOs para mapear la respuesta de Gradio
-// ==========================================
-data class GradioResponse(
-    val data: List<GradioOutput>
-)
-
-data class GradioOutput(
-    val prediccion: String,
-    val confianza: Double
-)
-
-data class PythonResponse(
-    val prediction: String,
-    val confidence: Double,
-    val status: String? = null
-)
