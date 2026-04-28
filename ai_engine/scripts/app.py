@@ -1,50 +1,40 @@
 import gradio as gr
-import torch
+from transformers import pipeline
 from PIL import Image
-from torchvision import transforms
 
-# 1. Cargar el modelo a la CPU
-device = torch.device("cpu")
-# OJO: Asegúrate de que el nombre del archivo aquí coincida con el que subiste a Hugging Face
-# Según tu repo se llama "ve_absoluta_v1.pth", ajustalo si allá se llama distinto.
-modelo = torch.load("ve_absoluta_v1.pth", map_location=device) 
-modelo.eval()
+# 1. Cargamos un modelo generalista 100% público y abierto
+detector_ia = pipeline("image-classification", model="umm-maybe/AI-image-detector")
 
-# 2. Definir cómo se procesa la imagen
 def predecir_imagen(imagen_pil):
-    
-    # SEGURIDAD CRÍTICA: Convertir siempre a RGB para evitar crash con PNGs transparentes
+    # Seguridad crítica: Convertir siempre a RGB
     imagen_rgb = imagen_pil.convert('RGB')
     
-    # Transformaciones clásicas de ResNet
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+    # 2. Pasamos la imagen por el pipeline generalista
+    resultados = detector_ia(imagen_rgb)
     
-    img_tensor = transform(imagen_rgb).unsqueeze(0).to(device)
+    # Este modelo devuelve etiquetas como 'artificial' (IA) y 'human' (Real)
+    confianza_ia = 0.0
+    confianza_real = 0.0
     
-    with torch.no_grad():
-        salida = modelo(img_tensor)
-        probabilidad = torch.nn.functional.softmax(salida[0], dim=0)
-        
-        # FIX DE ÍNDICES: Basado en el entrenamiento (0: Fake/IA, 1: Real)
-        confianza_ia = float(probabilidad[0])
-        confianza_real = float(probabilidad[1])
-        
-        # Si la confianza de que es IA supera el 50%
-        if confianza_ia > 0.5:
-            return {"prediccion": "CONTENIDO_IA_DETECTED", "confianza": confianza_ia}
+    for res in resultados:
+        etiqueta = res['label'].lower()
+        if etiqueta == 'artificial' or 'fake' in etiqueta:
+            confianza_ia = res['score']
         else:
-            return {"prediccion": "IMAGEN_REAL", "confianza": confianza_real}
+            confianza_real = res['score']
+            
+    # 3. Formateamos la salida EXACTAMENTE como tu backend en Kotlin la espera
+    if confianza_ia > 0.5:
+        return {"prediccion": "CONTENIDO_IA_DETECTED", "confianza": confianza_ia}
+    else:
+        return {"prediccion": "IMAGEN_REAL", "confianza": confianza_real}
 
-# 3. Levantar el servidor de Gradio
+# 4. Levantar el servidor de Gradio
 interfaz = gr.Interface(
     fn=predecir_imagen,
     inputs=gr.Image(type="pil"),
     outputs=gr.JSON(),
-    title="VE ABSOLUTA - Motor de Inferencia"
+    title="VE ABSOLUTA - Motor Forense Generalista"
 )
 
 if __name__ == "__main__":
