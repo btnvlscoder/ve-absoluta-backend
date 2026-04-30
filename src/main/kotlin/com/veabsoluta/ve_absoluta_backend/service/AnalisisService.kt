@@ -39,37 +39,34 @@ class AnalisisService(
         }
     }
 
-    /**
-     * Inferencia local: Llama al script de Python mediante ProcessBuilder.
+/**
+     * Inferencia local (MICROSERVICIO FASTAPI): 
+     * Conecta por HTTP al motor de Python que está residente en memoria (Puerto 8000)
      */
     private fun ejecutarDeteccionLocal(rutaImagen: String, nombreArchivo: String): Analisis {
-        val pythonPath = File(".venv/Scripts/python.exe").absolutePath
-        val scriptPath = File("ai_engine/scripts/detector.py").absolutePath
+        val restTemplate = RestTemplate()
+        val urlMotorPython = "http://localhost:8000/api/v1/analizar"
         
+        // Armamos el JSON que espera recibir nuestro motor FastAPI
+        val requestBody = mapOf("url_imagen" to rutaImagen)
+
         try {
-            val processBuilder = ProcessBuilder(pythonPath, scriptPath, rutaImagen)
-            processBuilder.redirectErrorStream(true)
+            // Hacemos un POST instantáneo al servidor de Python
+            val pythonResult = restTemplate.postForObject(urlMotorPython, requestBody, PythonResponse::class.java)
+                ?: throw RuntimeException("El motor local de IA devolvió una respuesta vacía")
+
+            // Guardamos el veredicto en la base de datos PostgreSQL
+            val nuevoRegistro = Analisis(
+                nombreArchivo = nombreArchivo,
+                rutaArchivo = rutaImagen,
+                prediccion = pythonResult.prediction,
+                confianza = pythonResult.confidence
+            )
+
+            return analisisRepository.save(nuevoRegistro)
             
-            val process = processBuilder.start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            val exitCode = process.waitFor()
-
-            if (exitCode == 0) {
-                val pythonResult = mapper.readValue<PythonResponse>(output)
-
-                val nuevoRegistro = Analisis(
-                    nombreArchivo = nombreArchivo,
-                    rutaArchivo = rutaImagen,
-                    prediccion = pythonResult.prediction,
-                    confianza = pythonResult.confidence
-                )
-
-                return analisisRepository.save(nuevoRegistro)
-            } else {
-                throw RuntimeException("Error en el motor local de Python: $output")
-            }
         } catch (e: Exception) {
-            throw RuntimeException("Fallo al ejecutar el análisis local: ${e.message}")
+            throw RuntimeException("Fallo la comunicación ultrarrápida con el motor IA local: ${e.message}")
         }
     }
 
