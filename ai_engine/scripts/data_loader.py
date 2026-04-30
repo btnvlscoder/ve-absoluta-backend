@@ -30,6 +30,9 @@ def preparar_datos(path_dataset, batch_size=32):
     # 3. Dividimos en Entrenamiento (80%) y Validación (20%)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
+
+    # Candado de reproducibilidad para que la división sea siempre igual
+    torch.manual_seed(42) 
     train_data, val_data = torch.utils.data.random_split(full_dataset, [train_size, val_size])
 
     # 4. Creamos los Loaders

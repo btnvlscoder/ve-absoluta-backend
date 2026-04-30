@@ -20,6 +20,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def entrenar():
     print(f"--- INICIANDO ENTRENAMIENTO EN {DEVICE} ---")
     
+    # Candado maestro para inicialización de pesos y operaciones en GPU/CPU
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+
     # 1. Cargar Datos (Usando tu estructura de carpetas)
     train_loader, val_loader, clases = preparar_datos(os.path.join(PATH_DATASET, "train"), BATCH_SIZE)
     print(f"Clases: {clases} | Entrenamiento: {len(train_loader.dataset)} imágenes")
