@@ -24,6 +24,7 @@ except Exception as e:
 # Definimos el formato JSON que esperamos recibir desde Spring Boot
 class PeticionAnalisis(BaseModel):
     url_imagen: str
+    umbral: float = 0.5
 
 @app.post("/api/v1/analizar")
 async def procesar_evidencia(peticion: PeticionAnalisis):
@@ -47,7 +48,7 @@ async def procesar_evidencia(peticion: PeticionAnalisis):
                 confianza_real = res['score']
                 
         # 3. Devolvemos el veredicto en formato JSON para que Kotlin lo lea
-        if confianza_ia > 0.5:
+        if confianza_ia >= peticion.umbral:
             return {"prediction": "CONTENIDO_IA_DETECTED", "confidence": confianza_ia}
         else:
             return {"prediction": "IMAGEN_REAL", "confidence": confianza_real}
