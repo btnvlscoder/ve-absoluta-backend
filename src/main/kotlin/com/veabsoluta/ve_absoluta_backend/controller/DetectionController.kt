@@ -1,34 +1,97 @@
 package com.veabsoluta.ve_absoluta_backend.controller
 
+import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
-import com.veabsoluta.ve_absoluta_backend.service.CloudinaryService // IMPORT NUEVO
+import com.veabsoluta.ve_absoluta_backend.service.CloudinaryService
+import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
+import org.springframework.web.server.ResponseStatusException
 
+/**
+ * Controlador REST para detección de deepfakes.
+ * 
+ * Validaciones implementadas:
+ * - Tipo MIME: solo acepta image/jpeg, image/png, image/webp
+ * - Tamaño máximo: 10MB
+ * - Archivo no vacío
+ */
 @RestController
 @RequestMapping("/api/v1/deteccion")
 @CrossOrigin(origins = ["*"], allowedHeaders = ["*"])
 class DetectionController(
     private val analisisService: AnalisisService,
-    private val cloudinaryService: CloudinaryService // INYECCIÓN ACTUALIZADA
+    private val cloudinaryService: CloudinaryService
 ) {
+    
+    private val log = LoggerFactory.getLogger(DetectionController::class.java)
+    
+    // Constantes de validación
+    companion object {
+        private const val MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
+        private val ALLOWED_MIME_TYPES = setOf(
+            MediaType.IMAGE_JPEG_VALUE,
+            MediaType.IMAGE_PNG_VALUE,
+            "image/webp"
+        )
+    }
 
     @PostMapping("/upload")
-    fun uploadImage(@RequestParam("file") file: MultipartFile): ResponseEntity<Any> {
-        return try {
-            // 1. Sube a la nube y obtiene la URL de Cloudinary (ej: https://res.cloudinary.com/...)
-            val urlArchivo = cloudinaryService.subirArchivo(file)
-
-            // 2. Envía esa URL al motor de IA en Hugging Face
-            val resultadoBd = analisisService.ejecutarDeteccion(
-                rutaImagen = urlArchivo,
-                nombreArchivo = file.originalFilename ?: "desconocido.mp4"
+    fun upload(@RequestParam file: MultipartFile): ResponseEntity<Analisis> {
+        log.info("Recibido request de upload: {} ({} bytes)", 
+            file.originalFilename, file.size)
+        
+        // ========== VALIDACIONES ==========
+        validarArchivo(file)
+        // ==================================
+        
+        val nombreOriginal = file.originalFilename?.takeIf { it.isNotBlank() } 
+            ?: "imagen_${System.currentTimeMillis()}.jpg"
+        
+        // 1. Subimos la foto a la nube
+        val url = cloudinaryService.subirArchivo(file)
+        log.debug("Archivo subido a Cloudinary: {}", url)
+        
+        // 2. Llamamos al orquestador IA
+        val resultado = analisisService.ejecutarDeteccion(url, nombreOriginal)
+        log.info("Análisis completado: predicción={}, confianza={}", 
+            resultado.prediccion, resultado.confianza)
+        
+        // 3. Devolvemos el JSON al frontend
+        return ResponseEntity.ok(resultado)
+    }
+    
+    /**
+     * Valida el archivo recibido.
+     * @throws ResponseStatusException si la validación falla
+     */
+    private fun validarArchivo(file: MultipartFile) {
+        // Validación 1: Archivo no vacío
+        require(!file.isEmpty) { 
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST, 
+                "El archivo no puede estar vacío"
             )
-            
-            ResponseEntity.ok(resultadoBd)
-        } catch (e: Exception) {
-            ResponseEntity.internalServerError().body(mapOf("error" to e.message))
+        }
+        
+        // Validación 2: Tamaño máximo
+        require(file.size <= MAX_FILE_SIZE_BYTES) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "El archivo excede el tamaño máximo de 10MB"
+            )
+        }
+        
+        // Validación 3: Tipo MIME
+        val contentType = file.contentType
+        require(contentType != null && contentType in ALLOWED_MIME_TYPES) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Tipo de archivo no válido. Solo se aceptan: JPEG, PNG, WebP"
+            )
         }
     }
 }
