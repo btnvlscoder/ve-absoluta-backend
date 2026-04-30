@@ -1,10 +1,10 @@
+from datetime import datetime
 import os
 import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
-import time
 
 # Esto le dice a Python que busque en la carpeta actual del script
 sys.path.append(os.path.dirname(__file__))
@@ -66,10 +66,21 @@ def entrenar():
         acc = corrects.double() / len(train_loader.dataset)
         print(f"Época {epoch+1}/{EPOCHS} - Loss: {running_loss/len(train_loader.dataset):.4f} - Acc: {acc:.4f}")
 
-    # 5. Guardar el "cerebro"
-    os.makedirs("ai_engine/models", exist_ok=True)
-    torch.save(modelo.state_dict(), "ai_engine/models/ve_absoluta_v1.pth")
-    print("\n¡Modelo guardado con éxito!")
+    # ==========================================
+    # 5. GUARDADO DE MODELO CON VERSIONADO (MLOps)
+    # ==========================================
+    # Creamos un sello de tiempo, ej: "20260430_1530"
+    version_stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    nombre_archivo = f"ve_absoluta_v{version_stamp}.pth"
+    
+    # Aseguramos que la carpeta correcta exista dentro de ai_engine
+    carpeta_modelos = "ai_engine/models"
+    os.makedirs(carpeta_modelos, exist_ok=True)
+    
+    ruta_guardado = os.path.join(carpeta_modelos, nombre_archivo)
+
+    torch.save(modelo.state_dict(), ruta_guardado)
+    print(f"💾 Entrenamiento finalizado. Modelo versionado guardado en: {ruta_guardado}")
 
 if __name__ == "__main__":
     entrenar()

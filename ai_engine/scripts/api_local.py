@@ -14,6 +14,9 @@ app = FastAPI(title="VE ABSOLUTA - Motor Forense Local")
 # CARGA EN MEMORIA (SINGLETON)
 # Esto se ejecuta UNA SOLA VEZ cuando arranca el servidor.
 # =====================================================================
+
+MODEL_VERSION = os.getenv("VE_MODEL_VERSION", "umm-maybe/AI-image-detector")
+
 print("Cargando modelo neuronal en memoria RAM... (Esto tomará unos segundos)")
 try:
     detector = pipeline("image-classification", model="umm-maybe/AI-image-detector")
