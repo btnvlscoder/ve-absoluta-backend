@@ -30,6 +30,7 @@ dependencies {
     // Módulo de Ingesta 
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     // Kotlin y JSON
     implementation("org.jetbrains.kotlin:kotlin-reflect")
@@ -43,6 +44,13 @@ dependencies {
 
     //Cloudinary
     implementation("com.cloudinary:cloudinary-http44:1.36.0")
+
+    // Rate Limiting
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+    implementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
+
+    // Swagger / OpenAPI
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 

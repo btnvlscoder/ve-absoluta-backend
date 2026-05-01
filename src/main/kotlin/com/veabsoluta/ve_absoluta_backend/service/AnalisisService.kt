@@ -135,5 +135,15 @@ enum class ErrorCode {
     IA_SERVICE_ERROR,        // El servicio respondió con error
     INVALID_IMAGE,          // La imagen no es válida
     TIMEOUT,                // La petición excedió el tiempo
+    STORAGE_ERROR,          // Error al almacenar en Cloudinary
     UNKNOWN                 // Error no categorizado
 }
+
+/**
+ * Excepción personalizada para el servicio de Cloudinary
+ */
+class CloudinaryServiceException(
+    message: String,
+    cause: Throwable? = null,
+    val codigo: ErrorCode = ErrorCode.STORAGE_ERROR
+) : RuntimeException(message, cause)
