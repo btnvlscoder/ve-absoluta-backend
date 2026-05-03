@@ -31,8 +31,8 @@ class RateLimitFilter : OncePerRequestFilter() {
     private val buckets = ConcurrentHashMap<String, Bucket>()
 
     companion object {
-        private const val MAX_REQUESTS_PER_MINUTE = 10
-        private const val MAX_REQUESTS_PER_HOUR = 50
+        private const val MAX_REQUESTS_PER_MINUTE = 10L
+        private const val MAX_REQUESTS_PER_HOUR = 50L
     }
 
     override fun doFilterInternal(
@@ -47,7 +47,7 @@ class RateLimitFilter : OncePerRequestFilter() {
         
         if (consumption) {
             // Agregar headers de rate limit
-            response.addHeader("X-RateLimit-Remaining", bucket.availableTokens().toString())
+            response.addHeader("X-RateLimit-Remaining", bucket.availableTokens.toString())
             response.addHeader("X-RateLimit-Limit", MAX_REQUESTS_PER_MINUTE.toString())
             filterChain.doFilter(request, response)
         } else {

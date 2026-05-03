@@ -21,7 +21,7 @@ import org.springframework.web.server.ResponseStatusException
  */
 @RestController
 @RequestMapping("/api/v1/deteccion")
-@CrossOrigin(origins = ["*"], allowedHeaders = ["*"])
+@CrossOrigin(origins = ["http://localhost:3000"], allowedHeaders = ["*"])
 class DetectionController(
     private val analisisService: AnalisisService,
     private val cloudinaryService: CloudinaryService

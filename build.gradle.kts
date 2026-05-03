@@ -26,6 +26,8 @@ dependencies {
     // Persistencia y Base de Datos (Requisito: PostgreSQL) 
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     runtimeOnly("org.postgresql:postgresql")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
 
     // Módulo de Ingesta 
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -41,6 +43,7 @@ dependencies {
 
     // HTTP Client para inferencia en la nube
     implementation("org.springframework.boot:spring-boot-starter-webflux") // WebClient reactivo
+    implementation("org.springframework.boot:spring-boot-starter-web") // RestClient sincrónico
 
     //Cloudinary
     implementation("com.cloudinary:cloudinary-http44:1.36.0")

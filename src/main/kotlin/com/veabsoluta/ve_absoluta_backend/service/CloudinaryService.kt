@@ -50,9 +50,14 @@ class CloudinaryService {
             log.debug("Subiendo archivo a Cloudinary: {} ({} bytes)", 
                 file.originalFilename, file.size)
             
+            val uploadOptions = ObjectUtils.asMap(
+                "public_id", file.originalFilename?.substringBeforeLast(".") ?: "upload",
+                "resource_type", "auto"
+            )
+            
             val uploadResult = cloudinary.uploader().upload(
-                file.bytes, 
-                ObjectUtils.emptyMap()
+                file.inputStream, 
+                uploadOptions
             )
 
             val secureUrl = uploadResult["secure_url"].toString()

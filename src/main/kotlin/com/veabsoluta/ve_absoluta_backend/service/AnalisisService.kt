@@ -2,19 +2,14 @@ package com.veabsoluta.ve_absoluta_backend.service
 
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
-import io.netty.channel.ChannelOption
-import io.netty.handler.timeout.ReadTimeoutHandler
-import io.netty.handler.timeout.WriteTimeoutHandler
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatusCode
-import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientResponseException
-import reactor.netty.http.client.HttpClient
+import org.springframework.web.client.RestClient
+import org.springframework.http.client.SimpleClientHttpRequestFactory
+import org.springframework.web.client.RestClientResponseException
 import java.time.Duration
-import java.util.concurrent.TimeUnit
 
 // DTOs para comunicación con el servicio IA
 data class AnalisisRequest(val url_imagen: String, val umbral: Double)
@@ -31,7 +26,7 @@ data class PythonResponse(val prediction: String, val confidence: Double)
 @Service
 class AnalisisService(
     private val analisisRepository: AnalisisRepository,
-    webClientBuilder: WebClient.Builder
+    restClientBuilder: RestClient.Builder
 ) {
     
     private val log = LoggerFactory.getLogger(AnalisisService::class.java)
@@ -43,18 +38,15 @@ class AnalisisService(
     @Value("\${veabsoluta.ia.threshold:0.65}")
     private var umbralDeteccion: Double = 0.65
 
-    // WebClient con timeouts configurados
-    private val webClient: WebClient by lazy {
-        val httpClient = HttpClient.create()
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000) // 5s conexión
-            .responseTimeout(Duration.ofSeconds(30)) // 30s respuesta
-            .doOnConnected { conn ->
-                conn.addHandlerLast(ReadTimeoutHandler(30, TimeUnit.SECONDS))
-                conn.addHandlerLast(WriteTimeoutHandler(30, TimeUnit.SECONDS))
-            }
+    // RestClient con timeouts configurados
+    private val restClient: RestClient by lazy {
+        val requestFactory = SimpleClientHttpRequestFactory()
+        requestFactory.setConnectTimeout(5000) // 5s conexión
+        requestFactory.setReadTimeout(30000) // 30s lectura
         
-        webClientBuilder
-            .clientConnector(ReactorClientHttpConnector(httpClient))
+        restClientBuilder
+            .baseUrl(aiServiceUrl)
+            .requestFactory(requestFactory)
             .build()
     }
 
@@ -73,13 +65,9 @@ class AnalisisService(
 
         val pythonResult = try {
             realizarPeticionIA(request)
-        } catch (e: Exception) {
+        } catch (e: AnalisisServiceException) {
             log.error("Error en comunicación con servicio IA para {}", nombreArchivo, e)
-            throw AnalisisServiceException(
-                message = "Error al comunicarse con el servicio de análisis: ${e.message}",
-                cause = e,
-                codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
-            )
+            throw e
         }
 
         // Persistir resultado en PostgreSQL
@@ -101,20 +89,39 @@ class AnalisisService(
      * Realiza la petición HTTP al servicio IA con manejo de errores específico
      */
     private fun realizarPeticionIA(request: AnalisisRequest): PythonResponse {
-        return webClient.post()
-            .uri(aiServiceUrl)
-            .bodyValue(request)
-            .retrieve()
-            .onStatus(HttpStatusCode::is5xx) { response ->
-                log.error("Error 5xx del servicio IA: {}", response.statusCode())
-                response.createException()
+        return try {
+            restClient.post()
+                .uri("")
+                .body(request)
+                .retrieve()
+                .body(PythonResponse::class.java)!!
+        } catch (e: RestClientResponseException) {
+            log.error("Error HTTP {} del servicio IA: {}", e.statusCode, e.responseBodyAsString)
+            when {
+                e.statusCode.is5xxServerError -> throw AnalisisServiceException(
+                    message = "Error interno del servicio IA: ${e.statusCode}",
+                    cause = e,
+                    codigo = ErrorCode.IA_SERVICE_ERROR
+                )
+                e.statusCode.is4xxClientError -> throw AnalisisServiceException(
+                    message = "Error del cliente al servicio IA: ${e.statusCode}",
+                    cause = e,
+                    codigo = ErrorCode.INVALID_IMAGE
+                )
+                else -> throw AnalisisServiceException(
+                    message = "Error desconocido del servicio IA: ${e.statusCode}",
+                    cause = e,
+                    codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
+                )
             }
-            .bodyToMono(PythonResponse::class.java)
-            .block() 
-            ?: throw AnalisisServiceException(
-                message = "El servicio IA devolvió una respuesta nula",
-                codigo = ErrorCode.IA_SERVICE_ERROR
+        } catch (e: Exception) {
+            log.error("Error de conexión al servicio IA", e)
+            throw AnalisisServiceException(
+                message = "No se pudo conectar al servicio IA: ${e.message}",
+                cause = e,
+                codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
             )
+        }
     }
 }
 
