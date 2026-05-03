@@ -34,6 +34,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
 
+    // Resilience4j para Circuit Breaker
+    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.2.0")
+
     // Kotlin y JSON
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")

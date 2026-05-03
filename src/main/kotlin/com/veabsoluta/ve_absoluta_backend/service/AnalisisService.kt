@@ -2,6 +2,8 @@ package com.veabsoluta.ve_absoluta_backend.service
 
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
+import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatusCode
@@ -50,6 +52,21 @@ class AnalisisService(
             .build()
     }
 
+    // Circuit Breaker para proteger contra caídas del servicio IA
+    private val circuitBreaker: CircuitBreaker by lazy {
+        CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
+            .failureRateThreshold(50.0f) // Abre si 50% de llamadas fallan
+            .slowCallRateThreshold(50.0f) // Abre si 50% de llamadas son lentas
+            .slowCallDurationThreshold(Duration.ofSeconds(30)) // Llamada lenta > 30s
+            .waitDurationInOpenState(Duration.ofSeconds(60)) // Espera 60s en estado abierto
+            .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+            .slidingWindowSize(10) // Últimas 10 llamadas
+            .minimumNumberOfCalls(5) // Mínimo 5 llamadas para evaluar
+            .permittedNumberOfCallsInHalfOpenState(3) // 3 llamadas de prueba en half-open
+            .automaticTransitionFromOpenToHalfOpenEnabled(true)
+            .build())
+    }
+
     /**
      * Orquestador principal: delega la inferencia al microservicio de Python
      * @return Analisis con el resultado de la detección
@@ -86,9 +103,25 @@ class AnalisisService(
     }
     
     /**
-     * Realiza la petición HTTP al servicio IA con manejo de errores específico
+     * Realiza la petición HTTP al servicio IA con Circuit Breaker
      */
     private fun realizarPeticionIA(request: AnalisisRequest): PythonResponse {
+        return try {
+            circuitBreaker.executeSupplier { realizarPeticionIAInternal(request) }
+        } catch (e: Exception) {
+            log.warn("Circuit Breaker activado o error en llamada IA: {}", e.message)
+            throw AnalisisServiceException(
+                message = "Servicio de análisis no disponible temporalmente",
+                cause = e,
+                codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
+            )
+        }
+    }
+
+    /**
+     * Implementación interna de la petición HTTP al servicio IA
+     */
+    private fun realizarPeticionIAInternal(request: AnalisisRequest): PythonResponse {
         return try {
             restClient.post()
                 .uri("")
