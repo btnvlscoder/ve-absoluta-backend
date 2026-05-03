@@ -9,10 +9,12 @@ import io.github.resilience4j.retry.RetryConfig
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
-import org.springframework.web.client.RestClient
-import org.springframework.http.client.SimpleClientHttpRequestFactory
-import org.springframework.web.client.RestClientResponseException
+import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
+import reactor.core.publisher.Mono
 import java.io.IOException
 import java.time.Duration
 import java.util.function.Supplier
@@ -53,43 +55,41 @@ data class PythonResponse(
 @Service
 class AnalisisService(
     private val analisisRepository: AnalisisRepository,
-    restClientBuilder: RestClient.Builder
+    webClientBuilder: WebClient.Builder
 ) {
     
     private val log = LoggerFactory.getLogger(AnalisisService::class.java)
     
     // Configuración desde application.properties
     @Value("\${ai.service.url:http://localhost:8000/api/v1/analizar}")
-    private lateinit var aiServiceUrl: String
+    private var aiServiceUrl: String = "http://localhost:8000/api/v1/analizar"
 
     @Value("\${veabsoluta.ia.threshold:0.65}")
     private var umbralDeteccion: Double = 0.65
 
     @Value("\${ai.model.version:veabsoluta-model-v1}")
-    private lateinit var aiModelVersion: String
+    private var aiModelVersion: String = "veabsoluta-model-v1"
 
     @Value("\${ai.api.version:v1}")
-    private lateinit var aiApiVersion: String
+    private var aiApiVersion: String = "v1"
 
-    // RestClient con timeouts configurados
-    private val restClient: RestClient by lazy {
-        val requestFactory = SimpleClientHttpRequestFactory()
-        requestFactory.setConnectTimeout(3000) // 3s conexión
-        requestFactory.setReadTimeout(5000) // 5s lectura
-        
-        restClientBuilder
+    // WebClient con timeouts configurados
+    private val webClient: WebClient by lazy {
+        webClientBuilder
             .baseUrl(aiServiceUrl)
-            .requestFactory(requestFactory)
+            .codecs { configurer ->
+                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) // 10MB
+            }
             .build()
     }
 
     private val retry: Retry by lazy {
-        Retry.of("iaServiceRetry", RetryConfig.custom<PythonResponse>()
+        Retry.of("iaServiceRetry", RetryConfig.custom<Mono<PythonResponse>>()
             .maxAttempts(2)
             .waitDuration(Duration.ofMillis(500))
             .retryOnException { throwable ->
                 throwable is IOException ||
-                (throwable is RestClientResponseException && throwable.statusCode.is5xxServerError)
+                (throwable is WebClientResponseException && throwable.statusCode.is5xxServerError)
             }
             .build())
     }
@@ -166,16 +166,41 @@ class AnalisisService(
     }
 
     /**
-     * Implementación interna de la petición HTTP al servicio IA
+     * Implementación interna de la petición HTTP al servicio IA usando WebClient
      */
     private fun realizarPeticionIAInternal(request: AnalisisRequest): PythonResponse {
         val startedAt = System.nanoTime()
+        log.info("Enviando request a IA: url={}, umbral={}, model_version={}",
+            request.url_imagen, request.umbral, request.model_version)
+
         return try {
-            val pythonResult = restClient.post()
+            val response = webClient.post()
                 .uri("")
-                .body(request)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
                 .retrieve()
-                .body(PythonResponse::class.java)
+                .onStatus({ status -> status.is4xxClientError }) { clientResponse ->
+                    log.warn("Error 4xx del servicio IA: {}", clientResponse.statusCode())
+                    clientResponse.bodyToMono(String::class.java)
+                        .flatMap { body ->
+                            Mono.error(AnalisisServiceException(
+                                message = "Error del cliente al servicio IA: ${clientResponse.statusCode()} - $body",
+                                codigo = ErrorCode.INVALID_IMAGE
+                            ))
+                        }
+                }
+                .onStatus({ status -> status.is5xxServerError }) { clientResponse ->
+                    log.error("Error 5xx del servicio IA: {}", clientResponse.statusCode())
+                    clientResponse.bodyToMono(String::class.java)
+                        .flatMap { body ->
+                            Mono.error(AnalisisServiceException(
+                                message = "Error interno del servicio IA: ${clientResponse.statusCode()} - $body",
+                                codigo = ErrorCode.IA_SERVICE_ERROR
+                            ))
+                        }
+                }
+                .bodyToMono(PythonResponse::class.java)
+                .block(Duration.ofSeconds(10)) // Timeout de 10 segundos
                 ?.validate()
                 ?: throw AnalisisServiceException(
                     message = "El servicio IA devolvió una respuesta nula",
@@ -183,18 +208,20 @@ class AnalisisService(
                 )
 
             val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-            val normalizedPrediction = normalizePrediction(pythonResult.prediction!!)
+            val normalizedPrediction = normalizePrediction(response.prediction!!)
             log.info(
-                "IA request completada en {} ms - prediction={}, confidence={}, model_version={}",
+                "IA response recibida en {} ms - prediction={}, confidence={}, model_version={}",
                 elapsedMs,
                 normalizedPrediction,
-                pythonResult.confidence,
-                pythonResult.model_version ?: aiModelVersion
+                response.confidence,
+                response.model_version ?: aiModelVersion
             )
 
-            pythonResult.copy(prediction = normalizedPrediction)
-        } catch (e: RestClientResponseException) {
-            log.error("Error HTTP {} del servicio IA: {}", e.statusCode, e.responseBodyAsString)
+            response.copy(prediction = normalizedPrediction)
+        } catch (e: WebClientResponseException) {
+            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+            log.error("Error HTTP {} del servicio IA en {} ms: {}",
+                e.statusCode, elapsedMs, e.responseBodyAsString)
             when {
                 e.statusCode.is5xxServerError -> throw AnalisisServiceException(
                     message = "Error interno del servicio IA: ${e.statusCode}",
@@ -213,14 +240,16 @@ class AnalisisService(
                 )
             }
         } catch (e: IllegalArgumentException) {
-            log.error("Validación de respuesta IA fallida: {}", e.message)
+            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+            log.error("Validación de respuesta IA fallida en {} ms: {}", elapsedMs, e.message)
             throw AnalisisServiceException(
                 message = "Respuesta inválida del servicio IA: ${e.message}",
                 cause = e,
                 codigo = ErrorCode.IA_SERVICE_ERROR
             )
         } catch (e: Exception) {
-            log.error("Error de conexión al servicio IA", e)
+            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+            log.error("Error de conexión al servicio IA en {} ms", elapsedMs, e)
             throw AnalisisServiceException(
                 message = "No se pudo conectar al servicio IA: ${e.message}",
                 cause = e,

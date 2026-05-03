@@ -2,7 +2,7 @@ package com.veabsoluta.ve_absoluta_backend.controller
 
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
-import com.veabsoluta.ve_absoluta_backend.service.CloudinaryService
+import com.veabsoluta.ve_absoluta_backend.service.storage.StorageService
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
@@ -30,13 +30,13 @@ class DetectionControllerTest {
     private lateinit var analisisService: AnalisisService
     
     @Mock
-    private lateinit var cloudinaryService: CloudinaryService
+    private lateinit var storageService: StorageService
     
     private lateinit var controller: DetectionController
 
     @BeforeEach
     fun setUp() {
-        controller = DetectionController(analisisService, cloudinaryService)
+        controller = DetectionController(analisisService, storageService)
     }
 
     @Test

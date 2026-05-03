@@ -20,7 +20,7 @@ import org.springframework.web.server.ResponseStatusException
  * - Archivo no vacío
  */
 @RestController
-@RequestMapping("/api/v1/deteccion")
+@RequestMapping("/api/v1/analizar")
 @CrossOrigin(origins = ["http://localhost:3000"], allowedHeaders = ["*"])
 class DetectionController(
     private val analisisService: AnalisisService,
@@ -68,7 +68,7 @@ class DetectionController(
      * Valida el archivo recibido.
      * @throws ResponseStatusException si la validación falla
      */
-    private fun validarArchivo(file: MultipartFile) {
+    internal fun validarArchivo(file: MultipartFile) {
         // Validación 1: Archivo no vacío
         require(!file.isEmpty) { 
             throw ResponseStatusException(
