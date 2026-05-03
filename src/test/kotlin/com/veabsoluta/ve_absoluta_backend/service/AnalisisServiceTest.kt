@@ -7,11 +7,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock
 import org.mockito.junit.jupiter.MockitoExtension
+import org.mockito.kotlin.argThat
 import org.mockito.kotlin.whenever
-import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec
-import org.springframework.web.reactive.function.client.WebClient.ResponseSpec
-import reactor.core.publisher.Mono
+import org.springframework.web.client.RestClient
+import org.springframework.web.client.RestClient.RequestBodyUriSpec
+import org.springframework.web.client.RestClient.ResponseSpec
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -31,10 +31,10 @@ class AnalisisServiceTest {
     private lateinit var analisisRepository: AnalisisRepository
     
     @Mock
-    private lateinit var webClientBuilder: WebClient.Builder
+    private lateinit var restClientBuilder: RestClient.Builder
     
     @Mock
-    private lateinit var webClient: WebClient
+    private lateinit var restClient: RestClient
     
     @Mock
     private lateinit var requestBodyUriSpec: RequestBodyUriSpec
@@ -46,7 +46,7 @@ class AnalisisServiceTest {
 
     @BeforeEach
     fun setUp() {
-        service = AnalisisService(analisisRepository, webClientBuilder)
+        service = AnalisisService(analisisRepository, restClientBuilder)
     }
 
     @Test
@@ -63,13 +63,15 @@ class AnalisisServiceTest {
             confianza = 0.95
         )
 
-        // Mock WebClient chain
-        whenever(webClientBuilder.build()).thenReturn(webClient)
-        whenever(webClient.post()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri<String>(any())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.bodyValue(any())).thenReturn(requestBodyUriSpec)
+        // Mock RestClient builder chain
+        whenever(restClientBuilder.baseUrl(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.requestFactory(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.build()).thenReturn(restClient)
+        whenever(restClient.post()).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.body(argThat { it is AnalisisRequest && it.api_version == "v1" })).thenReturn(requestBodyUriSpec)
         whenever(requestBodyUriSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.bodyToMono(PythonResponse::class.java)).thenReturn(Mono.just(expectedResponse))
+        whenever(responseSpec.body(PythonResponse::class.java)).thenReturn(expectedResponse)
         whenever(analisisRepository.save(any())).thenReturn(expectedAnalisis)
 
         // When
@@ -86,13 +88,15 @@ class AnalisisServiceTest {
         val urlImagen = "https://cloudinary.com/test.jpg"
         val nombreArchivo = "test.jpg"
 
-        whenever(webClientBuilder.build()).thenReturn(webClient)
-        whenever(webClient.post()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri<String>(any())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.bodyValue(any())).thenReturn(requestBodyUriSpec)
+        whenever(restClientBuilder.baseUrl(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.requestFactory(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.build()).thenReturn(restClient)
+        whenever(restClient.post()).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.body(any())).thenReturn(requestBodyUriSpec)
         whenever(requestBodyUriSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.bodyToMono(PythonResponse::class.java))
-            .thenReturn(Mono.error(RuntimeException("Connection refused")))
+        whenever(responseSpec.body(PythonResponse::class.java))
+            .thenThrow(RuntimeException("Connection refused"))
 
         // When/Then
         val exception = assertFailsWith<AnalisisServiceException> {
@@ -108,13 +112,15 @@ class AnalisisServiceTest {
         val urlImagen = "https://cloudinary.com/test.jpg"
         val nombreArchivo = "test.jpg"
 
-        whenever(webClientBuilder.build()).thenReturn(webClient)
-        whenever(webClient.post()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri<String>(any())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.bodyValue(any())).thenReturn(requestBodyUriSpec)
+        whenever(restClientBuilder.baseUrl(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.requestFactory(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.build()).thenReturn(restClient)
+        whenever(restClient.post()).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.body(any())).thenReturn(requestBodyUriSpec)
         whenever(requestBodyUriSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.bodyToMono(PythonResponse::class.java))
-            .thenReturn(Mono.empty())
+        whenever(responseSpec.body(PythonResponse::class.java))
+            .thenReturn(null)
 
         // When/Then
         val exception = assertFailsWith<AnalisisServiceException> {
@@ -123,6 +129,31 @@ class AnalisisServiceTest {
         
         assertEquals(ErrorCode.IA_SERVICE_ERROR, exception.codigo)
         assertTrue(exception.message?.contains("nula") == true)
+    }
+
+    @Test
+    fun `ejecutarDeteccion lanza excepción cuando prediccion IA es desconocida`() {
+        // Given
+        val urlImagen = "https://cloudinary.com/test.jpg"
+        val nombreArchivo = "test.jpg"
+
+        whenever(restClientBuilder.baseUrl(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.requestFactory(any())).thenReturn(restClientBuilder)
+        whenever(restClientBuilder.build()).thenReturn(restClient)
+        whenever(restClient.post()).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.body(any())).thenReturn(requestBodyUriSpec)
+        whenever(requestBodyUriSpec.retrieve()).thenReturn(responseSpec)
+        whenever(responseSpec.body(PythonResponse::class.java))
+            .thenReturn(PythonResponse(prediction = "suspicious", confidence = 0.95))
+
+        // When/Then
+        val exception = assertFailsWith<AnalisisServiceException> {
+            service.ejecutarDeteccion(urlImagen, nombreArchivo)
+        }
+
+        assertEquals(ErrorCode.IA_SERVICE_ERROR, exception.codigo)
+        assertTrue(exception.message?.contains("no reconocida") == true)
     }
 }
 

@@ -4,18 +4,43 @@ import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpStatusCode
 import org.springframework.stereotype.Service
 import org.springframework.web.client.RestClient
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.web.client.RestClientResponseException
+import java.io.IOException
 import java.time.Duration
+import java.util.function.Supplier
 
 // DTOs para comunicación con el servicio IA
-data class AnalisisRequest(val url_imagen: String, val umbral: Double)
-data class PythonResponse(val prediction: String, val confidence: Double)
+data class AnalisisRequest(
+    val url_imagen: String,
+    val umbral: Double,
+    val model_version: String,
+    val api_version: String
+)
+
+@JsonIgnoreProperties(ignoreUnknown = false)
+data class PythonResponse(
+    val prediction: String?,
+    val confidence: Double?,
+    val model_version: String? = null
+) {
+    fun validate(): PythonResponse {
+        if (prediction.isNullOrBlank()) {
+            throw IllegalArgumentException("Respuesta IA inválida: prediction vacío")
+        }
+        if (confidence == null || confidence.isNaN() || confidence < 0.0 || confidence > 1.0) {
+            throw IllegalArgumentException("Respuesta IA inválida: confidence debe estar entre 0.0 y 1.0")
+        }
+        return this
+    }
+}
 
 /**
  * Servicio de orquestación para detección de deepfakes.
@@ -40,16 +65,33 @@ class AnalisisService(
     @Value("\${veabsoluta.ia.threshold:0.65}")
     private var umbralDeteccion: Double = 0.65
 
+    @Value("\${ai.model.version:veabsoluta-model-v1}")
+    private lateinit var aiModelVersion: String
+
+    @Value("\${ai.api.version:v1}")
+    private lateinit var aiApiVersion: String
+
     // RestClient con timeouts configurados
     private val restClient: RestClient by lazy {
         val requestFactory = SimpleClientHttpRequestFactory()
-        requestFactory.setConnectTimeout(5000) // 5s conexión
-        requestFactory.setReadTimeout(30000) // 30s lectura
+        requestFactory.setConnectTimeout(3000) // 3s conexión
+        requestFactory.setReadTimeout(5000) // 5s lectura
         
         restClientBuilder
             .baseUrl(aiServiceUrl)
             .requestFactory(requestFactory)
             .build()
+    }
+
+    private val retry: Retry by lazy {
+        Retry.of("iaServiceRetry", RetryConfig.custom<PythonResponse>()
+            .maxAttempts(2)
+            .waitDuration(Duration.ofMillis(500))
+            .retryOnException { throwable ->
+                throwable is IOException ||
+                (throwable is RestClientResponseException && throwable.statusCode.is5xxServerError)
+            }
+            .build())
     }
 
     // Circuit Breaker para proteger contra caídas del servicio IA
@@ -77,7 +119,9 @@ class AnalisisService(
         
         val request = AnalisisRequest(
             url_imagen = rutaImagen,
-            umbral = umbralDeteccion
+            umbral = umbralDeteccion,
+            model_version = aiModelVersion,
+            api_version = aiApiVersion
         )
 
         val pythonResult = try {
@@ -91,8 +135,8 @@ class AnalisisService(
         val nuevoRegistro = Analisis(
             nombreArchivo = nombreArchivo,
             rutaArchivo = rutaImagen,
-            prediccion = pythonResult.prediction,
-            confianza = pythonResult.confidence
+            prediccion = pythonResult.prediction!!,
+            confianza = pythonResult.confidence!!
         )
 
         val resultado = analisisRepository.save(nuevoRegistro)
@@ -107,7 +151,10 @@ class AnalisisService(
      */
     private fun realizarPeticionIA(request: AnalisisRequest): PythonResponse {
         return try {
-            circuitBreaker.executeSupplier { realizarPeticionIAInternal(request) }
+            val supplier: Supplier<PythonResponse> = Supplier {
+                circuitBreaker.executeSupplier { realizarPeticionIAInternal(request) }
+            }
+            Retry.decorateSupplier(retry, supplier).get()
         } catch (e: Exception) {
             log.warn("Circuit Breaker activado o error en llamada IA: {}", e.message)
             throw AnalisisServiceException(
@@ -122,12 +169,30 @@ class AnalisisService(
      * Implementación interna de la petición HTTP al servicio IA
      */
     private fun realizarPeticionIAInternal(request: AnalisisRequest): PythonResponse {
+        val startedAt = System.nanoTime()
         return try {
-            restClient.post()
+            val pythonResult = restClient.post()
                 .uri("")
                 .body(request)
                 .retrieve()
-                .body(PythonResponse::class.java)!!
+                .body(PythonResponse::class.java)
+                ?.validate()
+                ?: throw AnalisisServiceException(
+                    message = "El servicio IA devolvió una respuesta nula",
+                    codigo = ErrorCode.IA_SERVICE_ERROR
+                )
+
+            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+            val normalizedPrediction = normalizePrediction(pythonResult.prediction!!)
+            log.info(
+                "IA request completada en {} ms - prediction={}, confidence={}, model_version={}",
+                elapsedMs,
+                normalizedPrediction,
+                pythonResult.confidence,
+                pythonResult.model_version ?: aiModelVersion
+            )
+
+            pythonResult.copy(prediction = normalizedPrediction)
         } catch (e: RestClientResponseException) {
             log.error("Error HTTP {} del servicio IA: {}", e.statusCode, e.responseBodyAsString)
             when {
@@ -147,12 +212,31 @@ class AnalisisService(
                     codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
                 )
             }
+        } catch (e: IllegalArgumentException) {
+            log.error("Validación de respuesta IA fallida: {}", e.message)
+            throw AnalisisServiceException(
+                message = "Respuesta inválida del servicio IA: ${e.message}",
+                cause = e,
+                codigo = ErrorCode.IA_SERVICE_ERROR
+            )
         } catch (e: Exception) {
             log.error("Error de conexión al servicio IA", e)
             throw AnalisisServiceException(
                 message = "No se pudo conectar al servicio IA: ${e.message}",
                 cause = e,
                 codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
+            )
+        }
+    }
+
+    private fun normalizePrediction(prediction: String): String {
+        val normalized = prediction.trim().lowercase()
+        return when {
+            normalized.contains("fake") || normalized.contains("artificial") || normalized.contains("manipulated") -> "FAKE"
+            normalized.contains("real") || normalized.contains("authentic") || normalized.contains("genuine") -> "REAL"
+            else -> throw AnalisisServiceException(
+                message = "Predicción IA no reconocida: '$prediction'",
+                codigo = ErrorCode.IA_SERVICE_ERROR
             )
         }
     }
@@ -175,15 +259,6 @@ enum class ErrorCode {
     IA_SERVICE_ERROR,        // El servicio respondió con error
     INVALID_IMAGE,          // La imagen no es válida
     TIMEOUT,                // La petición excedió el tiempo
-    STORAGE_ERROR,          // Error al almacenar en Cloudinary
+    STORAGE_ERROR,          // Error de almacenamiento
     UNKNOWN                 // Error no categorizado
 }
-
-/**
- * Excepción personalizada para el servicio de Cloudinary
- */
-class CloudinaryServiceException(
-    message: String,
-    cause: Throwable? = null,
-    val codigo: ErrorCode = ErrorCode.STORAGE_ERROR
-) : RuntimeException(message, cause)
