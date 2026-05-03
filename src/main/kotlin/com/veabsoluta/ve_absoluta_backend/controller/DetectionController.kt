@@ -2,7 +2,7 @@ package com.veabsoluta.ve_absoluta_backend.controller
 
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
-import com.veabsoluta.ve_absoluta_backend.service.CloudinaryService
+import com.veabsoluta.ve_absoluta_backend.service.storage.StorageService
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -24,7 +24,7 @@ import org.springframework.web.server.ResponseStatusException
 @CrossOrigin(origins = ["http://localhost:3000"], allowedHeaders = ["*"])
 class DetectionController(
     private val analisisService: AnalisisService,
-    private val cloudinaryService: CloudinaryService
+    private val storageService: StorageService
 ) {
     
     private val log = LoggerFactory.getLogger(DetectionController::class.java)
@@ -52,8 +52,8 @@ class DetectionController(
             ?: "imagen_${System.currentTimeMillis()}.jpg"
         
         // 1. Subimos la foto a la nube
-        val url = cloudinaryService.subirArchivo(file)
-        log.debug("Archivo subido a Cloudinary: {}", url)
+        val url = storageService.upload(file)
+        log.debug("Archivo subido al storage: {}", url)
         
         // 2. Llamamos al orquestador IA
         val resultado = analisisService.ejecutarDeteccion(url, nombreOriginal)

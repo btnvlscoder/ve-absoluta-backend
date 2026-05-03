@@ -1,7 +1,7 @@
 package com.veabsoluta.ve_absoluta_backend.controller
 
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisServiceException
-import com.veabsoluta.ve_absoluta_backend.service.CloudinaryServiceException
+import com.veabsoluta.ve_absoluta_backend.service.storage.StorageException
 import com.veabsoluta.ve_absoluta_backend.service.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -45,21 +45,17 @@ class GlobalExceptionHandler {
     }
 
     /**
-     * Maneja errores del servicio de almacenamiento (Cloudinary)
+     * Maneja errores del servicio de almacenamiento
      */
-    @ExceptionHandler(CloudinaryServiceException::class)
-    fun handleCloudinaryServiceException(ex: CloudinaryServiceException): ResponseEntity<ErrorResponse> {
-        log.error("Error en servicio de almacenamiento: {} - {}", ex.codigo, ex.message)
+    @ExceptionHandler(StorageException::class)
+    fun handleStorageException(ex: StorageException): ResponseEntity<ErrorResponse> {
+        log.error("Error en servicio de almacenamiento: {}", ex.message)
         
-        val (status, mensaje) = when (ex.codigo) {
-            ErrorCode.STORAGE_ERROR -> 
-                HttpStatus.SERVICE_UNAVAILABLE to "Servicio de almacenamiento temporalmente no disponible"
-            else -> 
-                HttpStatus.INTERNAL_SERVER_ERROR to "Error de almacenamiento: ${ex.message}"
-        }
-        
-        return ResponseEntity.status(status)
-            .body(ErrorResponse(codigo = ex.codigo.name, mensaje = mensaje))
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(ErrorResponse(
+                codigo = "STORAGE_ERROR",
+                mensaje = "Servicio de almacenamiento temporalmente no disponible"
+            ))
     }
 
     /**

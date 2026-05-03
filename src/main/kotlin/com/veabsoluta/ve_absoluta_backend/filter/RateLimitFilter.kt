@@ -40,6 +40,14 @@ class RateLimitFilter : OncePerRequestFilter() {
         response: HttpServletResponse,
         filterChain: FilterChain
     ) {
+        val requestUri = request.requestURI
+        
+        // Rutas exentas de rate limiting
+        if (isExemptPath(requestUri)) {
+            filterChain.doFilter(request, response)
+            return
+        }
+        
         val clientIp = getClientIp(request)
         val bucket = buckets.computeIfAbsent(clientIp) { createBucket() }
         
@@ -79,6 +87,16 @@ class RateLimitFilter : OncePerRequestFilter() {
             .addLimit(limitPerMinute)
             .addLimit(limitPerHour)
             .build()
+    }
+
+    /**
+     * Verifica si la ruta está exenta de rate limiting
+     */
+    private fun isExemptPath(requestUri: String): Boolean {
+        return requestUri.startsWith("/actuator/") ||
+               requestUri.startsWith("/swagger-ui/") ||
+               requestUri.startsWith("/v3/api-docs") ||
+               requestUri == "/swagger-ui.html"
     }
 
     private fun getClientIp(request: HttpServletRequest): String {

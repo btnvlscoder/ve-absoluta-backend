@@ -1,4 +1,4 @@
-package com.veabsoluta.ve_absoluta_backend.service
+package com.veabsoluta.ve_absoluta_backend.service.storage
 
 import com.cloudinary.Cloudinary
 import com.cloudinary.utils.ObjectUtils
@@ -8,17 +8,17 @@ import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
 
 /**
- * Servicio para gestionar almacenamiento de archivos multimedia en Cloudinary.
- * 
+ * Implementación de StorageService usando Cloudinary.
+ *
  * Ventajas implementadas:
  * - Retorna instantáneamente una URL pública (secure_url)
  * - Delega la gestión del almacenamiento y ancho de banda a la nube
- * - Manejo de errores estructurado con CloudinaryServiceException
+ * - Manejo de errores estructurado con StorageException
  */
 @Service
-class CloudinaryService {
+class CloudinaryStorageService : StorageService {
 
-    private val log = LoggerFactory.getLogger(CloudinaryService::class.java)
+    private val log = LoggerFactory.getLogger(CloudinaryStorageService::class.java)
 
     @Value("\${cloudinary.cloud-name}")
     private lateinit var cloudName: String
@@ -40,12 +40,12 @@ class CloudinaryService {
 
     /**
      * Sube un archivo a Cloudinary y retorna su URL segura HTTPS.
-     * 
+     *
      * @param file Archivo multipart del request
      * @return URL pública del archivo almacenado
-     * @throws CloudinaryServiceException si falla la subida
+     * @throws StorageException si falla la subida
      */
-    fun subirArchivo(file: MultipartFile): String {
+    override fun upload(file: MultipartFile): String {
         return try {
             log.debug("Subiendo archivo a Cloudinary: {} ({} bytes)", 
                 file.originalFilename, file.size)
@@ -67,10 +67,9 @@ class CloudinaryService {
             
         } catch (e: Exception) {
             log.error("Error al subir archivo a Cloudinary: {}", e.message, e)
-            throw CloudinaryServiceException(
+            throw StorageException(
                 message = "Error al subir imagen a Cloudinary: ${e.message}",
-                cause = e,
-                codigo = ErrorCode.STORAGE_ERROR
+                cause = e
             )
         }
     }
