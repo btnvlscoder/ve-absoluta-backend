@@ -4,12 +4,15 @@ import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
 import com.veabsoluta.ve_absoluta_backend.service.storage.StorageService
 import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.server.ResponseStatusException
+import reactor.core.publisher.Mono
+import java.util.UUID
 
 /**
  * Controlador REST para detección de deepfakes.
@@ -41,8 +44,11 @@ class DetectionController(
 
     @PostMapping("/upload")
     fun upload(@RequestParam file: MultipartFile): ResponseEntity<Analisis> {
-        log.info("Recibido request de upload: {} ({} bytes)", 
-            file.originalFilename, file.size)
+        val traceId = UUID.randomUUID().toString()
+        MDC.put("traceId", traceId)
+        
+        log.info("Request upload recibido - traceId: {}, filename: {}, size: {}", 
+            traceId, file.originalFilename, file.size)
         
         // ========== VALIDACIONES ==========
         validarArchivo(file)
@@ -53,12 +59,12 @@ class DetectionController(
         
         // 1. Subimos la foto a la nube
         val url = storageService.upload(file)
-        log.debug("Archivo subido al storage: {}", url)
+        log.debug("Archivo subido al storage - traceId: {}, url: {}", traceId, url)
         
         // 2. Llamamos al orquestador IA
         val resultado = analisisService.ejecutarDeteccion(url, nombreOriginal)
-        log.info("Análisis completado: predicción={}, confianza={}", 
-            resultado.prediccion, resultado.confianza)
+        log.info("Análisis completado - traceId: {}, prediction: {}, confidence: {}", 
+            traceId, resultado.prediccion, resultado.confianza)
         
         // 3. Devolvemos el JSON al frontend
         return ResponseEntity.ok(resultado)

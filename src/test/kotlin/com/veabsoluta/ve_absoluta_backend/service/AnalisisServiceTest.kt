@@ -8,6 +8,8 @@ import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock
 import org.mockito.junit.jupiter.MockitoExtension
 import org.mockito.kotlin.argThat
+import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.spy
 import org.mockito.kotlin.whenever
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec
@@ -64,20 +66,13 @@ class AnalisisServiceTest {
             confianza = 0.95
         )
 
-        // Mock WebClient builder chain
-        whenever(webClientBuilder.baseUrl(any())).thenReturn(webClientBuilder)
-        whenever(webClientBuilder.codecs(any())).thenReturn(webClientBuilder)
-        whenever(webClientBuilder.build()).thenReturn(webClient)
-        whenever(webClient.post()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.contentType(any())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.bodyValue(any())).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.bodyToMono(PythonResponse::class.java)).thenReturn(Mono.just(expectedResponse))
+        // Use spy to mock the internal method
+        val serviceSpy = spy(service)
+        doReturn(Mono.just(expectedResponse)).`when`(serviceSpy).realizarPeticionIAInternal(any())
         whenever(analisisRepository.save(any())).thenReturn(expectedAnalisis)
 
         // When
-        val result = service.ejecutarDeteccion(urlImagen, nombreArchivo)
+        val result = serviceSpy.ejecutarDeteccion(urlImagen, nombreArchivo)
 
         // Then
         assertEquals("FAKE", result.prediccion)

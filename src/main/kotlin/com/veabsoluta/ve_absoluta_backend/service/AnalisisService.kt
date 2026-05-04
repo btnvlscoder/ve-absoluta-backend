@@ -4,8 +4,6 @@ import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
-import io.github.resilience4j.retry.Retry
-import io.github.resilience4j.retry.RetryConfig
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -14,10 +12,11 @@ import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.slf4j.MDC
 import reactor.core.publisher.Mono
 import java.io.IOException
 import java.time.Duration
-import java.util.function.Supplier
+import java.util.UUID
 
 // DTOs para comunicación con el servicio IA
 data class AnalisisRequest(
@@ -34,12 +33,8 @@ data class PythonResponse(
     val model_version: String? = null
 ) {
     fun validate(): PythonResponse {
-        if (prediction.isNullOrBlank()) {
-            throw IllegalArgumentException("Respuesta IA inválida: prediction vacío")
-        }
-        if (confidence == null || confidence.isNaN() || confidence < 0.0 || confidence > 1.0) {
-            throw IllegalArgumentException("Respuesta IA inválida: confidence debe estar entre 0.0 y 1.0")
-        }
+        require(!prediction.isNullOrBlank()) { "Respuesta IA inválida: prediction vacío" }
+        require(confidence != null && !confidence.isNaN() && confidence in 0.0..1.0) { "Respuesta IA inválida: confidence debe estar entre 0.0 y 1.0" }
         return this
     }
 }
@@ -83,17 +78,6 @@ class AnalisisService(
             .build()
     }
 
-    private val retry: Retry by lazy {
-        Retry.of("iaServiceRetry", RetryConfig.custom<Mono<PythonResponse>>()
-            .maxAttempts(2)
-            .waitDuration(Duration.ofMillis(500))
-            .retryOnException { throwable ->
-                throwable is IOException ||
-                (throwable is WebClientResponseException && throwable.statusCode.is5xxServerError)
-            }
-            .build())
-    }
-
     // Circuit Breaker para proteger contra caídas del servicio IA
     private val circuitBreaker: CircuitBreaker by lazy {
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
@@ -115,6 +99,7 @@ class AnalisisService(
      * @throws AnalisisServiceException si falla la comunicación
      */
     fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): Analisis {
+        val startedAt = System.nanoTime()
         log.info("Iniciando análisis para: {}", nombreArchivo)
         
         val request = AnalisisRequest(
@@ -125,137 +110,112 @@ class AnalisisService(
         )
 
         val pythonResult = try {
-            realizarPeticionIA(request)
+            realizarPeticionIAInternal(request).block()
         } catch (e: AnalisisServiceException) {
             log.error("Error en comunicación con servicio IA para {}", nombreArchivo, e)
             throw e
         }
 
+        // Log estructurado de la response exitosa
+        val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
+        log.info("IA response completada - traceId: {}, duration_ms: {}, prediction: {}, confidence: {}, model_version: {}", 
+            MDC.get("traceId"), elapsedMs, pythonResult?.prediction, pythonResult?.confidence, 
+            pythonResult?.model_version ?: aiModelVersion)
+
         // Persistir resultado en PostgreSQL
         val nuevoRegistro = Analisis(
             nombreArchivo = nombreArchivo,
             rutaArchivo = rutaImagen,
-            prediccion = pythonResult.prediction!!,
-            confianza = pythonResult.confidence!!
+            prediccion = pythonResult?.prediction ?: throw IllegalStateException("Prediction should not be null"),
+            confianza = pythonResult?.confidence ?: throw IllegalStateException("Confidence should not be null")
         )
 
         val resultado = analisisRepository.save(nuevoRegistro)
         log.info("Análisis completado: predicción={}, confianza={}", 
-            pythonResult.prediction, pythonResult.confidence)
+            pythonResult?.prediction, pythonResult?.confidence)
         
         return resultado
     }
     
     /**
-     * Realiza la petición HTTP al servicio IA con Circuit Breaker
+     * Implementación interna de la petición HTTP al servicio IA usando WebClient reactivo
      */
-    private fun realizarPeticionIA(request: AnalisisRequest): PythonResponse {
-        return try {
-            val supplier: Supplier<PythonResponse> = Supplier {
-                circuitBreaker.executeSupplier { realizarPeticionIAInternal(request) }
+    internal fun realizarPeticionIAInternal(request: AnalisisRequest): Mono<PythonResponse> {
+        val traceId = MDC.get("traceId") ?: UUID.randomUUID().toString()
+        MDC.put("traceId", traceId)
+        
+        // Log estructurado del request
+        log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}, model_version: {}", 
+            traceId, request.url_imagen, request.umbral, request.model_version)
+
+        return webClient.post()
+            .uri("")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(request)
+            .retrieve()
+            .onStatus({ status -> status.is4xxClientError }) { clientResponse ->
+                log.warn("IA response 4xx - traceId: {}, status: {}, no se reintentará", 
+                    traceId, clientResponse.statusCode())
+                clientResponse.bodyToMono(String::class.java)
+                    .flatMap { body ->
+                        Mono.error(AnalisisServiceException(
+                            message = "Error del cliente al servicio IA: ${clientResponse.statusCode()} - $body",
+                            codigo = ErrorCode.INVALID_IMAGE
+                        ))
+                    }
             }
-            Retry.decorateSupplier(retry, supplier).get()
-        } catch (e: Exception) {
-            log.warn("Circuit Breaker activado o error en llamada IA: {}", e.message)
-            throw AnalisisServiceException(
-                message = "Servicio de análisis no disponible temporalmente",
-                cause = e,
-                codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
-            )
-        }
-    }
-
-    /**
-     * Implementación interna de la petición HTTP al servicio IA usando WebClient
-     */
-    private fun realizarPeticionIAInternal(request: AnalisisRequest): PythonResponse {
-        val startedAt = System.nanoTime()
-        log.info("Enviando request a IA: url={}, umbral={}, model_version={}",
-            request.url_imagen, request.umbral, request.model_version)
-
-        return try {
-            val response = webClient.post()
-                .uri("")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(request)
-                .retrieve()
-                .onStatus({ status -> status.is4xxClientError }) { clientResponse ->
-                    log.warn("Error 4xx del servicio IA: {}", clientResponse.statusCode())
-                    clientResponse.bodyToMono(String::class.java)
-                        .flatMap { body ->
-                            Mono.error(AnalisisServiceException(
-                                message = "Error del cliente al servicio IA: ${clientResponse.statusCode()} - $body",
-                                codigo = ErrorCode.INVALID_IMAGE
-                            ))
-                        }
-                }
-                .onStatus({ status -> status.is5xxServerError }) { clientResponse ->
-                    log.error("Error 5xx del servicio IA: {}", clientResponse.statusCode())
-                    clientResponse.bodyToMono(String::class.java)
-                        .flatMap { body ->
-                            Mono.error(AnalisisServiceException(
-                                message = "Error interno del servicio IA: ${clientResponse.statusCode()} - $body",
-                                codigo = ErrorCode.IA_SERVICE_ERROR
-                            ))
-                        }
-                }
-                .bodyToMono(PythonResponse::class.java)
-                .block(Duration.ofSeconds(10)) // Timeout de 10 segundos
-                ?.validate()
-                ?: throw AnalisisServiceException(
-                    message = "El servicio IA devolvió una respuesta nula",
-                    codigo = ErrorCode.IA_SERVICE_ERROR
-                )
-
-            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-            val normalizedPrediction = normalizePrediction(response.prediction!!)
-            log.info(
-                "IA response recibida en {} ms - prediction={}, confidence={}, model_version={}",
-                elapsedMs,
-                normalizedPrediction,
-                response.confidence,
-                response.model_version ?: aiModelVersion
-            )
-
-            response.copy(prediction = normalizedPrediction)
-        } catch (e: WebClientResponseException) {
-            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-            log.error("Error HTTP {} del servicio IA en {} ms: {}",
-                e.statusCode, elapsedMs, e.responseBodyAsString)
-            when {
-                e.statusCode.is5xxServerError -> throw AnalisisServiceException(
-                    message = "Error interno del servicio IA: ${e.statusCode}",
+            .onStatus({ status -> status.is5xxServerError }) { clientResponse ->
+                log.error("IA response 5xx - traceId: {}, status: {}, se reintentará", 
+                    traceId, clientResponse.statusCode())
+                clientResponse.bodyToMono(String::class.java)
+                    .flatMap { body ->
+                        Mono.error(AnalisisServiceException(
+                            message = "Error interno del servicio IA: ${clientResponse.statusCode()} - $body",
+                            codigo = ErrorCode.IA_SERVICE_ERROR
+                        ))
+                    }
+            }
+            .bodyToMono(PythonResponse::class.java)
+            .timeout(Duration.ofSeconds(15)) // Response timeout total
+            .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(500))
+                .filter { throwable ->
+                    when (throwable) {
+                        is IOException -> true
+                        is WebClientResponseException -> throwable.statusCode.is5xxServerError
+                        else -> false
+                    }
+                })
+            .map { response -> response.validate() }
+            .map { pythonResult ->
+                val prediction = pythonResult.prediction ?: throw IllegalStateException("prediction should not be null after validation")
+                val confidence = pythonResult.confidence ?: throw IllegalStateException("confidence should not be null after validation")
+                
+                val normalizedPrediction = normalizePrediction(prediction)
+                pythonResult.copy(prediction = normalizedPrediction)
+            }
+            .onErrorResume(WebClientResponseException::class.java) { e ->
+                log.error("IA request fallida - traceId: {}, status: {}, message: {}", 
+                    traceId, e.statusCode, e.responseBodyAsString)
+                Mono.error(e)
+            }
+            .onErrorResume(IllegalArgumentException::class.java) { e ->
+                log.error("IA response validación fallida - traceId: {}, error: {}", 
+                    traceId, e.message)
+                Mono.error(AnalisisServiceException(
+                    message = "Respuesta inválida del servicio IA: ${e.message}",
                     cause = e,
                     codigo = ErrorCode.IA_SERVICE_ERROR
-                )
-                e.statusCode.is4xxClientError -> throw AnalisisServiceException(
-                    message = "Error del cliente al servicio IA: ${e.statusCode}",
-                    cause = e,
-                    codigo = ErrorCode.INVALID_IMAGE
-                )
-                else -> throw AnalisisServiceException(
-                    message = "Error desconocido del servicio IA: ${e.statusCode}",
+                ))
+            }
+            .onErrorResume(Exception::class.java) { e ->
+                log.error("IA request error de conexión - traceId: {}, error: {}", 
+                    traceId, e.message)
+                Mono.error(AnalisisServiceException(
+                    message = "No se pudo conectar al servicio IA: ${e.message}",
                     cause = e,
                     codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
-                )
+                ))
             }
-        } catch (e: IllegalArgumentException) {
-            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-            log.error("Validación de respuesta IA fallida en {} ms: {}", elapsedMs, e.message)
-            throw AnalisisServiceException(
-                message = "Respuesta inválida del servicio IA: ${e.message}",
-                cause = e,
-                codigo = ErrorCode.IA_SERVICE_ERROR
-            )
-        } catch (e: Exception) {
-            val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-            log.error("Error de conexión al servicio IA en {} ms", elapsedMs, e)
-            throw AnalisisServiceException(
-                message = "No se pudo conectar al servicio IA: ${e.message}",
-                cause = e,
-                codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
-            )
-        }
     }
 
     private fun normalizePrediction(prediction: String): String {

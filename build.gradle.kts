@@ -59,6 +59,9 @@ dependencies {
     // Swagger / OpenAPI
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
+    // Logs estructurados
+    implementation("net.logstash.logback:logstash-logback-encoder:7.4")
+
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 
     // Testing
