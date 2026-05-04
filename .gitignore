@@ -1,5 +1,5 @@
-# --- Directorios de Gradle y Compilación ---
-.gradle
+# --- Directorios de Compilación y Kotlin ---
+.gradle/
 build/
 target/
 bin/
@@ -7,11 +7,11 @@ out/
 .kotlin/
 
 # --- Archivos de configuración de IDEs ---
-.idea
+.idea/
+.vscode/
 *.iws
 *.iml
 *.ipr
-.vscode/
 .classpath
 .project
 .settings
@@ -20,24 +20,24 @@ out/
 # --- Específico de VE ABSOLUTA (Backend) ---
 /uploads/
 *.log
-
-# --- SECCIÓN IA (IMPORTANTE) ---
-# Ignoramos los datasets pesados (4GB+)
-ai_engine/datasets/
-
-# Ignoramos el modelo pesado (GitHub no permite archivos >100MB fácilmente)
-# Este lo pasas por Google Drive
-ai_engine/models/*.pth
-
-# --- SECCIÓN PYTHON ---
-**/__pycache__/
-**/*.py[cod]
-**/*$py.class
-**/.venv/
-**/venv/
-**/env/
-
-# --- Otros ---
 .DS_Store
 HELP.md
 **/application.properties
+
+# --- SECCIÓN PYTHON E IA (CONSOLIDADA) ---
+
+# 1. Caché de Python
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# 2. Entornos Virtuales
+**/venv/
+**/.venv/
+**/env/
+
+# 3. Datos y Modelos Pesados (Ignora carpetas y extensiones globales)
+**/datasets/
+**/models/
+*.pth
+*.safetensors

@@ -1,86 +1,122 @@
-from datetime import datetime
 import os
-import sys
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torchvision import models
+from torchvision import datasets
+from torch.utils.data import Dataset
+from transformers import (
+    AutoImageProcessor, 
+    AutoModelForImageClassification, 
+    TrainingArguments, 
+    Trainer
+)
 
-# Esto le dice a Python que busque en la carpeta actual del script
-sys.path.append(os.path.dirname(__file__))
-from data_loader import preparar_datos 
+# --- CONFIGURACIÓN MLOps ---
+PATH_DATASET = "datasets/test"                 
+MODELO_BASE = "umm-maybe/AI-image-detector"    
+OUTPUT_DIR = "models/ve_absoluta_vit"          
 
-# --- CONFIGURACIÓN ---
-PATH_DATASET = "ai_engine/datasets/dfdc_faces"
-BATCH_SIZE = 32
-EPOCHS = 10
-LEARNING_RATE = 0.001
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# =====================================================================
+# PUENTE: Esta clase traduce el formato de PyTorch al de Hugging Face
+# =====================================================================
+class TraductorViT(Dataset):
+    def __init__(self, dataset_pytorch, procesador):
+        self.dataset = dataset_pytorch
+        self.procesador = procesador
 
-def entrenar():
-    print(f"--- INICIANDO ENTRENAMIENTO EN {DEVICE} ---")
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        # 1. Saca la foto de la carpeta usando PyTorch
+        img, label = self.dataset[idx]
+        img = img.convert("RGB")
+        
+        # 2. El "Picador" de Hugging Face la procesa para el Transformer
+        inputs = self.procesador(images=img, return_tensors="pt")
+        
+        # 3. Devuelve el diccionario exacto que necesita el Trainer
+        return {
+            "pixel_values": inputs["pixel_values"].squeeze(0), # Quitamos la dimensión extra
+            "labels": torch.tensor(label)
+        }
+
+# =====================================================================
+# PIPELINE DE DATOS
+# =====================================================================
+def preparar_datos():
+    print("1. Cargando el 'Picador' de imágenes del Transformer...")
+    procesador = AutoImageProcessor.from_pretrained(MODELO_BASE)
     
-    # Candado maestro para inicialización de pesos y operaciones en GPU/CPU
+    # Usamos el viejo y confiable ImageFolder de PyTorch (¡A Windows no le molesta!)
+    dataset_base = datasets.ImageFolder(PATH_DATASET)
+    clases = dataset_base.classes
+    print(f"   -> Clases detectadas: {clases}")
+    
+    # Dividimos 80% Entrenamiento / 20% Validación
+    train_size = int(0.8 * len(dataset_base))
+    val_size = len(dataset_base) - train_size
     torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
-
-    # 1. Cargar Datos (Usando tu estructura de carpetas)
-    train_loader, val_loader, clases = preparar_datos(os.path.join(PATH_DATASET, "train"), BATCH_SIZE)
-    print(f"Clases: {clases} | Entrenamiento: {len(train_loader.dataset)} imágenes")
-
-    # 2. Modelo ResNet50 (Transfer Learning)
-    modelo = models.resnet50(weights='DEFAULT')
-    for param in modelo.parameters():
-        param.requires_grad = False # Congelamos lo que ya sabe
+    train_base, val_base = torch.utils.data.random_split(dataset_base, [train_size, val_size])
     
-    # Ajustamos la salida para Real vs Fake (2 clases)
-    num_ftrs = modelo.fc.in_features
-    modelo.fc = nn.Linear(num_ftrs, len(clases))
-    modelo = modelo.to(DEVICE)
-
-    # 3. Optimización
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(modelo.fc.parameters(), lr=LEARNING_RATE)
-
-    # 4. Loop de entrenamiento
-    for epoch in range(EPOCHS):
-        modelo.train()
-        running_loss = 0.0
-        corrects = 0
-
-        for inputs, labels in train_loader:
-            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-            optimizer.zero_grad()
-            
-            outputs = modelo(inputs)
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels)
-
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * inputs.size(0)
-            corrects += torch.sum(preds == labels.data)
-
-        acc = corrects.double() / len(train_loader.dataset)
-        print(f"Época {epoch+1}/{EPOCHS} - Loss: {running_loss/len(train_loader.dataset):.4f} - Acc: {acc:.4f}")
-
-    # ==========================================
-    # 5. GUARDADO DE MODELO CON VERSIONADO (MLOps)
-    # ==========================================
-    # Creamos un sello de tiempo, ej: "20260430_1530"
-    version_stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    nombre_archivo = f"ve_absoluta_v{version_stamp}.pth"
+    # Pasamos las fotos por nuestro puente traductor
+    train_dataset = TraductorViT(train_base, procesador)
+    val_dataset = TraductorViT(val_base, procesador)
     
-    # Aseguramos que la carpeta correcta exista dentro de ai_engine
-    carpeta_modelos = "ai_engine/models"
-    os.makedirs(carpeta_modelos, exist_ok=True)
-    
-    ruta_guardado = os.path.join(carpeta_modelos, nombre_archivo)
+    return train_dataset, val_dataset, procesador, clases
 
-    torch.save(modelo.state_dict(), ruta_guardado)
-    print(f"💾 Entrenamiento finalizado. Modelo versionado guardado en: {ruta_guardado}")
+# =====================================================================
+# CARGA DEL MODELO (El Cerebro)
+# =====================================================================
+def cargar_modelo(clases):
+    print(f"2. Descargando el cerebro base: {MODELO_BASE}...")
+    id2label = {str(i): c for i, c in enumerate(clases)}
+    label2id = {c: str(i) for i, c in enumerate(clases)}
+    
+    modelo = AutoModelForImageClassification.from_pretrained(
+        MODELO_BASE,
+        num_labels=len(clases),
+        id2label=id2label,
+        label2id=label2id,
+        ignore_mismatched_sizes=True
+    )
+    return modelo
+
+# =====================================================================
+# PILOTO AUTOMÁTICO
+# =====================================================================
+def entrenar_vit():
+    train_dataset, val_dataset, procesador, clases = preparar_datos()
+    modelo = cargar_modelo(clases)
+    
+    print("3. Configurando el Piloto Automático (Trainer)...")
+    argumentos_entrenamiento = TrainingArguments(
+        output_dir=OUTPUT_DIR,
+        remove_unused_columns=False,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        learning_rate=2e-5,
+        per_device_train_batch_size=16,
+        gradient_accumulation_steps=4,
+        per_device_eval_batch_size=16,
+        num_train_epochs=5,
+        warmup_ratio=0.1,
+        logging_steps=10,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss"
+    )
+    
+    entrenador = Trainer(
+        model=modelo,
+        args=argumentos_entrenamiento,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        processing_class=procesador,
+    )
+    
+    print("4. ¡Iniciando Aprendizaje Continuo (Fine-Tuning)!")
+    entrenador.train()
+    
+    print(f"5. Guardando el modelo definitivo VE ABSOLUTA v2 en: {OUTPUT_DIR}")
+    entrenador.save_model(OUTPUT_DIR)
 
 if __name__ == "__main__":
-    entrenar()
+    entrenar_vit()
