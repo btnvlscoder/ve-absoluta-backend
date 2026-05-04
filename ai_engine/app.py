@@ -1,116 +1,79 @@
-import os
-import torch
-import torch.nn as nn
-from torchvision import models, transforms
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from transformers import pipeline
-from PIL import Image
 import requests
 from io import BytesIO
-import uvicorn
+from PIL import Image
+import torch
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-app = FastAPI(title="VE ABSOLUTA - Motor Forense Local")
+# =====================================================================
+# INICIALIZACIÓN DE LA API Y CARGA DEL MODELO
+# =====================================================================
+app = FastAPI(
+    title="VE ABSOLUTA - AI Engine",
+    description="API de Inferencia con Vision Transformer",
+    version="2.0"
+)
 
-# ==========================================
-# 1. MLOps: VARIABLES DE ENTORNO DINÁMICAS
-# ==========================================
-# PUNTO 1 CORREGIDO: Ahora usamos esta variable de verdad.
-MODEL_VERSION = os.getenv("VE_MODEL_VERSION", "umm-maybe/AI-image-detector")
+# IMPORTANTE: Apuntamos a tu REPOSITORIO DE MODELOS en la nube
+MODEL_DIR = "btnvlscoder/ve-absoluta-vit-v2" 
 
-# PUNTO 2 CORREGIDO: Umbral por defecto dinámico desde el entorno operativo.
-DEFAULT_THRESHOLD = float(os.getenv("VE_THRESHOLD", "0.5"))
-
-print(f"Iniciando motor VE ABSOLUTA con versión: [{MODEL_VERSION}]")
-
-# =======================================================
-# 2. CARGA INTELIGENTE HF vs CUSTOM
-# =======================================================
-detector_hf = None
-modelo_custom = None
-transformaciones_custom = None
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+print(f"Descargando motor de IA desde: {MODEL_DIR}...")
 try:
-    if MODEL_VERSION.endswith(".pth"):
-        # MODO A: Inferencia con tu propio modelo entrenado (ResNet50)
-        print("Detectado archivo .pth. Cargando red neuronal propia...")
-        
-        # Reconstruimos la arquitectura que usaste en train.py
-        modelo_custom = models.resnet50(weights=None)
-        num_ftrs = modelo_custom.fc.in_features
-        modelo_custom.fc = nn.Linear(num_ftrs, 2) # 2 clases: Real vs Fake
-        
-        # Cargamos tus pesos entrenados
-        modelo_custom.load_state_dict(torch.load(MODEL_VERSION, map_location=DEVICE, weights_only=True))
-        modelo_custom.to(DEVICE)
-        modelo_custom.eval() # Modo inferencia
-        
-        # Transformaciones estándar de PyTorch
-        transformaciones_custom = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        print("✅ Modelo propio (ResNet50) cargado y listo en memoria.")
-        
-    else:
-        # MODO B: Inferencia con Hugging Face Pipeline
-        print("Detectado formato de nube. Cargando pipeline de Hugging Face...")
-        # AQUI USAMOS LA VARIABLE CORRECTAMENTE
-        detector_hf = pipeline("image-classification", model=MODEL_VERSION) 
-        print("✅ Pipeline de HF cargado y listo en memoria.")
-        
+    # Transformers descargará los archivos a la caché del Space
+    procesador = AutoImageProcessor.from_pretrained(MODEL_DIR)
+    modelo = AutoModelForImageClassification.from_pretrained(MODEL_DIR)
+    modelo.eval() 
+    print("...Vision Transformer cargado y listo para la acción.")
 except Exception as e:
-    print(f"❌ Error crítico al cargar el modelo: {e}")
+    print(f"...Error al cargar el modelo: {e}")
 
+# =====================================================================
+# ESQUEMA DE DATOS
+# =====================================================================
+class PeticionImagen(BaseModel):
+    url: str
 
-# ==========================================
-# 3. ENDPOINT Y REGLAS DE NEGOCIO
-# ==========================================
-class PeticionAnalisis(BaseModel):
-    url_imagen: str
-    umbral: float = DEFAULT_THRESHOLD  # Usamos la variable de entorno
+# =====================================================================
+# ENDPOINTS
+# =====================================================================
+@app.get("/")
+def health_check():
+    return {"status": "online", "motor": "ViT V2 - Cloud", "ready": True}
 
-@app.post("/api/v1/analizar")
-async def procesar_evidencia(peticion: PeticionAnalisis):
+@app.post("/api/v1/detect")
+async def analizar_imagen(peticion: PeticionImagen):
     try:
-        # Descarga en memoria RAM
-        respuesta_http = requests.get(peticion.url_imagen)
-        respuesta_http.raise_for_status()
-        img = Image.open(BytesIO(respuesta_http.content)).convert('RGB')
-
-        confianza_ia = 0.0
-        confianza_real = 0.0
-
-        # Ejecutamos inferencia dependiendo de qué motor cargamos
-        if modelo_custom:
-            # Lógica para tu modelo propio .pth
-            tensor_img = transformaciones_custom(img).unsqueeze(0).to(DEVICE)
-            with torch.no_grad():
-                outputs = modelo_custom(tensor_img)
-                probabilidades = torch.nn.functional.softmax(outputs[0], dim=0)
-                # Asumimos clase 0: Real, clase 1: Fake (basado en orden alfabético de carpetas)
-                confianza_ia = probabilidades[1].item()
-                confianza_real = probabilidades[0].item()
-        else:
-            # Lógica para Hugging Face
-            resultados = detector_hf(img)
-            for res in resultados:
-                etiqueta = res['label'].lower()
-                if etiqueta == 'artificial' or 'fake' in etiqueta:
-                    confianza_ia = res['score']
-                else:
-                    confianza_real = res['score']
-
-        # Retornamos evaluación
-        if confianza_ia >= peticion.umbral:
-            return {"prediction": "CONTENIDO_IA_DETECTED", "confidence": confianza_ia}
-        else:
-            return {"prediction": "IMAGEN_REAL", "confidence": confianza_real}
-
+        # 1. Descargamos la imagen directo a RAM
+        respuesta_http = requests.get(peticion.url, timeout=10)
+        respuesta_http.raise_for_status() 
+        
+        # 2. Procesamiento de imagen
+        imagen = Image.open(BytesIO(respuesta_http.content)).convert("RGB")
+        inputs = procesador(images=imagen, return_tensors="pt")
+        
+        # 3. Inferencia (Cálculo en la CPU de Hugging Face)
+        with torch.no_grad():
+            outputs = modelo(**inputs)
+            
+        logits = outputs.logits
+        probabilidades = torch.nn.functional.softmax(logits, dim=-1)
+        clase_predicha_idx = logits.argmax(-1).item()
+        
+        clase_predicha = modelo.config.id2label[clase_predicha_idx]
+        confianza = probabilidades[0][clase_predicha_idx].item()
+        
+        return {
+            "status": "success",
+            "prediccion": clase_predicha.upper(), 
+            "confianza": round(confianza * 100, 2),
+            "metadata": {
+                "modelo_usado": "VE_ABSOLUTA_ViT_V2",
+                "infraestructura": "Hugging Face Spaces (Docker)"
+            }
+        }
+        
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=400, detail=f"Error al descargar imagen: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        raise HTTPException(status_code=500, detail=f"Error en el motor de IA: {str(e)}")

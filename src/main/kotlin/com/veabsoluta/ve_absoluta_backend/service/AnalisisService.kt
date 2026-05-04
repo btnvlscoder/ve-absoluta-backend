@@ -20,21 +20,21 @@ import java.util.UUID
 
 // DTOs para comunicación con el servicio IA
 data class AnalisisRequest(
-    val url_imagen: String,
+    val url: String,          // DEBE ser 'url' para que FastAPI lo reconozca
     val umbral: Double,
-    val model_version: String,
-    val api_version: String
+    val model_version: String
 )
 
-@JsonIgnoreProperties(ignoreUnknown = false)
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class PythonResponse(
-    val prediction: String?,
-    val confidence: Double?,
-    val model_version: String? = null
+    val status: String?,
+    val prediccion: String?, // Ahora viene como "prediccion" (español) desde tu app.py
+    val confianza: Double?,
+    val metadata: Map<String, Any>? = null
 ) {
     fun validate(): PythonResponse {
-        require(!prediction.isNullOrBlank()) { "Respuesta IA inválida: prediction vacío" }
-        require(confidence != null && !confidence.isNaN() && confidence in 0.0..1.0) { "Respuesta IA inválida: confidence debe estar entre 0.0 y 1.0" }
+        require(!prediccion.isNullOrBlank()) { "Respuesta IA inválida: prediccion vacío" }
+        require(confianza != null) { "Respuesta IA inválida: confianza nula" }
         return this
     }
 }
@@ -52,29 +52,15 @@ class AnalisisService(
     private val analisisRepository: AnalisisRepository,
     webClientBuilder: WebClient.Builder
 ) {
-    
-    private val log = LoggerFactory.getLogger(AnalisisService::class.java)
-    
-    // Configuración desde application.properties
-    @Value("\${ai.service.url:http://localhost:8000/api/v1/analizar}")
-    private var aiServiceUrl: String = "http://localhost:8000/api/v1/analizar"
+    // ai.service.url=https://btnvlscoder-ve-absoluta-api.hf.space/api/v1/detect
+    @Value("\${ai.service.url}")
+    private lateinit var aiServiceUrl: String
 
-    @Value("\${veabsoluta.ia.threshold:0.65}")
-    private var umbralDeteccion: Double = 0.65
-
-    @Value("\${ai.model.version:veabsoluta-model-v1}")
-    private var aiModelVersion: String = "veabsoluta-model-v1"
-
-    @Value("\${ai.api.version:v1}")
-    private var aiApiVersion: String = "v1"
-
-    // WebClient con timeouts configurados
     private val webClient: WebClient by lazy {
         webClientBuilder
             .baseUrl(aiServiceUrl)
-            .codecs { configurer ->
-                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) // 10MB
-            }
+            .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+            // Aumentamos timeout para el "Cold Start" de Hugging Face
             .build()
     }
 
@@ -99,42 +85,22 @@ class AnalisisService(
      * @throws AnalisisServiceException si falla la comunicación
      */
     fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): Analisis {
-        val startedAt = System.nanoTime()
-        log.info("Iniciando análisis para: {}", nombreArchivo)
-        
         val request = AnalisisRequest(
-            url_imagen = rutaImagen,
-            umbral = umbralDeteccion,
-            model_version = aiModelVersion,
-            api_version = aiApiVersion
+            url = rutaImagen, // URL de Cloudinary
+            umbral = 0.65,
+            model_version = "VE_ABSOLUTA_ViT_V2"
         )
 
-        val pythonResult = try {
-            realizarPeticionIAInternal(request).block()
-        } catch (e: AnalisisServiceException) {
-            log.error("Error en comunicación con servicio IA para {}", nombreArchivo, e)
-            throw e
-        }
+        val pythonResult = realizarPeticionIAInternal(request).block()
 
-        // Log estructurado de la response exitosa
-        val elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis()
-        log.info("IA response completada - traceId: {}, duration_ms: {}, prediction: {}, confidence: {}, model_version: {}", 
-            MDC.get("traceId"), elapsedMs, pythonResult?.prediction, pythonResult?.confidence, 
-            pythonResult?.model_version ?: aiModelVersion)
-
-        // Persistir resultado en PostgreSQL
         val nuevoRegistro = Analisis(
             nombreArchivo = nombreArchivo,
             rutaArchivo = rutaImagen,
-            prediccion = pythonResult?.prediction ?: throw IllegalStateException("Prediction should not be null"),
-            confianza = pythonResult?.confidence ?: throw IllegalStateException("Confidence should not be null")
+            prediccion = pythonResult?.prediccion ?: "ERROR",
+            confianza = (pythonResult?.confianza ?: 0.0) / 100.0 // Normalizamos a 0.0-1.0 si es necesario
         )
 
-        val resultado = analisisRepository.save(nuevoRegistro)
-        log.info("Análisis completado: predicción={}, confianza={}", 
-            pythonResult?.prediction, pythonResult?.confidence)
-        
-        return resultado
+        return analisisRepository.save(nuevoRegistro)
     }
     
     /**
@@ -145,8 +111,8 @@ class AnalisisService(
         MDC.put("traceId", traceId)
         
         // Log estructurado del request
-        log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}, model_version: {}", 
-            traceId, request.url_imagen, request.umbral, request.model_version)
+    log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}", 
+        traceId, request.url, request.umbral) // Cambiado url_imagen por url
 
         return webClient.post()
             .uri("")
@@ -176,7 +142,7 @@ class AnalisisService(
                     }
             }
             .bodyToMono(PythonResponse::class.java)
-            .timeout(Duration.ofSeconds(15)) // Response timeout total
+            .timeout(Duration.ofSeconds(60)) // Response timeout total
             .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(500))
                 .filter { throwable ->
                     when (throwable) {
