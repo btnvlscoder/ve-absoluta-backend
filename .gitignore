@@ -41,3 +41,9 @@ HELP.md
 **/models/
 *.pth
 *.safetensors
+
+subir_nube.py
+# Ignorar el script con la clave real
+ai_engine/subir_nube.py
+# Ignorar archivos de entorno
+.env
