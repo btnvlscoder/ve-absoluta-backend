@@ -24,12 +24,13 @@ import java.util.UUID
  */
 @RestController
 @RequestMapping("/api/v1/analizar")
-class DetectionController(
+@CrossOrigin(origins = ["https://ve-absoluta-frontend.onrender.com"])
+class AnalisisController(
     private val analisisService: AnalisisService,
     private val storageService: StorageService
 ) {
     
-    private val log = LoggerFactory.getLogger(DetectionController::class.java)
+    private val log = LoggerFactory.getLogger(AnalisisController::class.java)
     
     // Constantes de validación
     companion object {
