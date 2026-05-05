@@ -18,10 +18,16 @@ class TraceFilter : Filter {
 
     override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
         val httpRequest = request as HttpServletRequest
+        val httpResponse = response as HttpServletResponse
 
-        // Ignorar OPTIONS para trazabilidad limpia
+        // Inyectar cabeceras CORS manualmente por seguridad
+        httpResponse.setHeader("Access-Control-Allow-Origin", "https://ve-absoluta-frontend.onrender.com")
+        httpResponse.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        httpResponse.setHeader("Access-Control-Allow-Headers", "*")
+        httpResponse.setHeader("Access-Control-Allow-Credentials", "true")
+
         if ("OPTIONS".equals(httpRequest.method, ignoreCase = true)) {
-            chain.doFilter(request, response)
+            httpResponse.status = HttpServletResponse.SC_OK
             return
         }
         // Intentar obtener traceId del header, si no existe generar uno nuevo
