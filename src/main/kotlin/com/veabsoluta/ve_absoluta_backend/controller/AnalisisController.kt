@@ -24,6 +24,7 @@ import java.util.UUID
  */
 @RestController
 @RequestMapping("/api/v1/analizar")
+class AnalisisController(  
     private val analisisService: AnalisisService,
     private val storageService: StorageService
 ) {
