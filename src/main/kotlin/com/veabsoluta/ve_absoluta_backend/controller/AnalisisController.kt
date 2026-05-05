@@ -42,8 +42,7 @@ class AnalisisController(
     }
 
     @PostMapping("/upload")
-    fun upload(@RequestParam file: MultipartFile): ResponseEntity<Analisis> {
-        val traceId = UUID.randomUUID().toString()
+    fun upload(@RequestParam("file") file: MultipartFile): ResponseEntity<Analisis> {        val traceId = UUID.randomUUID().toString()
         MDC.put("traceId", traceId)
         
         log.info("Request upload recibido - traceId: {}, filename: {}, size: {}", 
