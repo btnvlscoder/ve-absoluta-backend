@@ -8,22 +8,17 @@ import org.springframework.web.filter.CorsFilter
 
 @Configuration
 class CorsConfig {
-
     @Bean
     fun corsFilter(): CorsFilter {
         val config = CorsConfiguration()
-        
-        // Permitir todos los orígenes
-        config.allowedOrigins = listOf("*")
-        // Permitir todas las cabeceras
+        // URL exacta de tu frontend en Render
+        config.allowedOrigins = listOf("https://ve-absoluta-frontend.onrender.com") 
+        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
         config.allowedHeaders = listOf("*")
-        // Permitir todos los métodos HTTP, especialmente OPTIONS que es el que usa Chrome para verificar
-        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-        
+        config.allowCredentials = true
+
         val source = UrlBasedCorsConfigurationSource()
         source.registerCorsConfiguration("/**", config)
-        
-        // Al registrarlo como un Bean CorsFilter, Spring Boot lo pone al principio de la cadena
         return CorsFilter(source)
     }
 }

@@ -24,8 +24,6 @@ import java.util.UUID
  */
 @RestController
 @RequestMapping("/api/v1/analizar")
-@CrossOrigin(origins = ["https://ve-absoluta-frontend.onrender.com"])
-class AnalisisController(
     private val analisisService: AnalisisService,
     private val storageService: StorageService
 ) {
