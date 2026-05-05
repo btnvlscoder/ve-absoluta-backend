@@ -40,6 +40,13 @@ class RateLimitFilter : OncePerRequestFilter() {
         response: HttpServletResponse,
         filterChain: FilterChain
     ) {
+
+        // Dejar pasar OPTIONS sin consumir tokens
+        if ("OPTIONS".equals(request.method, ignoreCase = true)) {
+            filterChain.doFilter(request, response)
+            return
+        }
+
         val requestUri = request.requestURI
         
         // Rutas exentas de rate limiting

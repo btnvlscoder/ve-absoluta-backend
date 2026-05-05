@@ -18,7 +18,12 @@ class TraceFilter : Filter {
 
     override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
         val httpRequest = request as HttpServletRequest
-        
+
+        // Ignorar OPTIONS para trazabilidad limpia
+        if ("OPTIONS".equals(httpRequest.method, ignoreCase = true)) {
+            chain.doFilter(request, response)
+            return
+        }
         // Intentar obtener traceId del header, si no existe generar uno nuevo
         val traceId = httpRequest.getHeader("X-Trace-Id") ?: UUID.randomUUID().toString()
         
