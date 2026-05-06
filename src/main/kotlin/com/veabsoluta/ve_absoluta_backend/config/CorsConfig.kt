@@ -1,8 +1,9 @@
 package com.veabsoluta.ve_absoluta_backend.config
+
 import org.springframework.boot.web.servlet.FilterRegistrationBean
-import org.springframework.core.Ordered
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.Ordered
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 import org.springframework.web.filter.CorsFilter
@@ -11,20 +12,18 @@ import org.springframework.web.filter.CorsFilter
 class CorsConfig {
     @Bean
     fun corsFilter(): FilterRegistrationBean<CorsFilter> {
-        val config = CorsConfiguration().apply {
-            allowedOrigins = listOf("https://ve-absoluta-frontend.onrender.com")
-            allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
-            allowedHeaders = listOf("*")
-            allowCredentials = true
-            maxAge = 3600L // Cachea la respuesta OPTIONS por una hora
-        }
+        val config = CorsConfiguration()
+        config.allowedOrigins = listOf("https://ve-absoluta-frontend.onrender.com")
+        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        config.allowedHeaders = listOf("*")
+        config.allowCredentials = true
+        config.maxAge = 3600L
 
-        val source = UrlBasedCorsConfigurationSource().apply {
-            registerCorsConfiguration("/**", config)
-        }
+        val source = UrlBasedCorsConfigurationSource()
+        source.registerCorsConfiguration("/**", config)
         
         val bean = FilterRegistrationBean(CorsFilter(source))
-        bean.order = Ordered.HIGHEST_PRECEDENCE
+        bean.order = Ordered.HIGHEST_PRECEDENCE 
         return bean
     }
 }

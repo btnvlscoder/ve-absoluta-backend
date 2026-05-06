@@ -63,7 +63,9 @@ class AnalisisService(
             // Aumentamos timeout para el "Cold Start" de Hugging Face
             .build()
     }
-    private val log = org.slf4j.LoggerFactory.getLogger(AnalisisService::class.java)
+    
+    private val log = LoggerFactory.getLogger(AnalisisService::class.java)
+    
     // Circuit Breaker para proteger contra caídas del servicio IA
     private val circuitBreaker: CircuitBreaker by lazy {
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
@@ -111,8 +113,8 @@ class AnalisisService(
         MDC.put("traceId", traceId)
         
         // Log estructurado del request
-    log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}", 
-        traceId, request.url, request.umbral) // Cambiado url_imagen por url
+        log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}", 
+            traceId, request.url, request.umbral)
 
         return webClient.post()
             .uri("")
@@ -153,11 +155,11 @@ class AnalisisService(
                 })
             .map { response -> response.validate() }
             .map { pythonResult ->
-                val prediccion = pythonResult.prediccion ?: throw IllegalStateException("prediccion should not be null after validation")
-                val confidence = pythonResult.confidence ?: throw IllegalStateException("confidence should not be null after validation")
+                val prediccion = pythonResult.prediccion ?: throw IllegalStateException("La prediccion no debe ser nula")
+                val confianza = pythonResult.confianza ?: throw IllegalStateException("La confianza no debe ser nula")
                 
-                val normalizedprediccion = normalizeprediccion(prediccion)
-                pythonResult.copy(prediccion = normalizedprediccion)
+                val prediccionNormalizada = normalizarPrediccion(prediccion)
+                pythonResult.copy(prediccion = prediccionNormalizada)
             }
             .onErrorResume(WebClientResponseException::class.java) { e ->
                 log.error("IA request fallida - traceId: {}, status: {}, message: {}", 
@@ -184,7 +186,7 @@ class AnalisisService(
             }
     }
 
-    private fun normalizeprediccion(prediccion: String): String {
+    private fun normalizarPrediccion(prediccion: String): String {
         val normalized = prediccion.trim().lowercase()
         return when {
             normalized.contains("fake") || normalized.contains("artificial") || normalized.contains("manipulated") -> "FAKE"
