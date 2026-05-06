@@ -5,13 +5,17 @@ import org.springframework.boot.runApplication
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 
-@SpringBootApplication
-@RestController // Convertimos la clase principal en un controlador de prueba
+// Forzamos a Spring a escanear desde la raíz absoluta
+@SpringBootApplication(scanBasePackages = [
+    "com.veabsoluta", 
+    "com.veabsoluta.ve_absoluta_backend"
+])
+@RestController
 class VeAbsolutaBackendApplication {
 
     @GetMapping("/ping")
     fun ping(): String {
-        return "¡El backend está vivo y Render sí actualiza, Bastián!"
+        return "¡El backend está vivo y el radar funciona!"
     }
 }
 
