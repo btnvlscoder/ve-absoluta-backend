@@ -10,17 +10,20 @@ import org.springframework.web.filter.CorsFilter
 class CorsConfig {
     @Bean
     fun corsFilter(): FilterRegistrationBean<CorsFilter> {
-        val config = CorsConfiguration()
-        config.allowedOrigins = listOf("https://ve-absoluta-frontend.onrender.com")
-        config.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
-        config.allowedHeaders = listOf("*")
-        config.allowCredentials = true
+        val config = CorsConfiguration().apply {
+            allowedOrigins = listOf("https://ve-absoluta-frontend.onrender.com")
+            allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS")
+            allowedHeaders = listOf("*")
+            allowCredentials = true
+            maxAge = 3600L // Cachea la respuesta OPTIONS por una hora
+        }
 
-        val source = UrlBasedCorsConfigurationSource()
-        source.registerCorsConfiguration("/**", config)
+        val source = UrlBasedCorsConfigurationSource().apply {
+            registerCorsConfiguration("/**", config)
+        }
         
         val bean = FilterRegistrationBean(CorsFilter(source))
-        bean.order = Ordered.HIGHEST_PRECEDENCE // Esto lo pone antes que cualquier otro filtro
+        bean.order = Ordered.HIGHEST_PRECEDENCE
         return bean
     }
 }
