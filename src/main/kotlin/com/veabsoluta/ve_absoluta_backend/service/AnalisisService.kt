@@ -63,7 +63,7 @@ class AnalisisService(
             // Aumentamos timeout para el "Cold Start" de Hugging Face
             .build()
     }
-
+    private val log = org.slf4j.LoggerFactory.getLogger(AnalisisService::class.java)
     // Circuit Breaker para proteger contra caídas del servicio IA
     private val circuitBreaker: CircuitBreaker by lazy {
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
@@ -153,11 +153,11 @@ class AnalisisService(
                 })
             .map { response -> response.validate() }
             .map { pythonResult ->
-                val prediction = pythonResult.prediction ?: throw IllegalStateException("prediction should not be null after validation")
+                val prediccion = pythonResult.prediccion ?: throw IllegalStateException("prediccion should not be null after validation")
                 val confidence = pythonResult.confidence ?: throw IllegalStateException("confidence should not be null after validation")
                 
-                val normalizedPrediction = normalizePrediction(prediction)
-                pythonResult.copy(prediction = normalizedPrediction)
+                val normalizedprediccion = normalizeprediccion(prediccion)
+                pythonResult.copy(prediccion = normalizedprediccion)
             }
             .onErrorResume(WebClientResponseException::class.java) { e ->
                 log.error("IA request fallida - traceId: {}, status: {}, message: {}", 
@@ -184,13 +184,13 @@ class AnalisisService(
             }
     }
 
-    private fun normalizePrediction(prediction: String): String {
-        val normalized = prediction.trim().lowercase()
+    private fun normalizeprediccion(prediccion: String): String {
+        val normalized = prediccion.trim().lowercase()
         return when {
             normalized.contains("fake") || normalized.contains("artificial") || normalized.contains("manipulated") -> "FAKE"
             normalized.contains("real") || normalized.contains("authentic") || normalized.contains("genuine") -> "REAL"
             else -> throw AnalisisServiceException(
-                message = "Predicción IA no reconocida: '$prediction'",
+                message = "Predicción IA no reconocida: '$prediccion'",
                 codigo = ErrorCode.IA_SERVICE_ERROR
             )
         }
