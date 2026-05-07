@@ -1,5 +1,5 @@
 package com.veabsoluta.ve_absoluta_backend.controller
-
+import org.springframework.web.servlet.resource.NoResourceFoundException
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisServiceException
 import com.veabsoluta.ve_absoluta_backend.service.storage.StorageException
 import com.veabsoluta.ve_absoluta_backend.service.ErrorCode
