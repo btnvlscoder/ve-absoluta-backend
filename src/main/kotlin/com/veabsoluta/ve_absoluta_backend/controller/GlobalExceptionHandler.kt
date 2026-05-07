@@ -99,7 +99,24 @@ class GlobalExceptionHandler {
                 mensaje = "Error interno del servidor"
             ))
     }
+
+    /**
+     * Maneja rutas no encontradas (404) para no ensuciar el log
+     */
+    @ExceptionHandler(NoResourceFoundException::class)
+    fun handleNotFoundException(ex: NoResourceFoundException): ResponseEntity<ErrorResponse> {
+        // Usamos warn y NO le pasamos la excepción completa para evitar el stack trace
+        log.warn("Ruta no encontrada: {}", ex.resourcePath) 
+        
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ErrorResponse(
+                codigo = "NOT_FOUND",
+                mensaje = "La ruta solicitada no existe en la API"
+            ))
+    }
 }
+
+
 
 /**
  * Respuesta de error estándar para el frontend
