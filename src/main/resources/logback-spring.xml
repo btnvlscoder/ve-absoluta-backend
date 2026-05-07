@@ -20,7 +20,7 @@
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/ve-absoluta.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/ve-absoluta.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <fileNamePattern>logs/ve-absoluta.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxFileSize>10MB</maxFileSize>
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>

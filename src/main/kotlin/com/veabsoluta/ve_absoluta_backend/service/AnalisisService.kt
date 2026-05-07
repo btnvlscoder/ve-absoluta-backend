@@ -20,7 +20,7 @@ import java.util.UUID
 
 // DTOs para comunicación con el servicio IA
 data class AnalisisRequest(
-    val url: String,          // 'url' para que FastAPI lo reconozca
+    val url: String,          // debe ser 'url' para que FastAPI lo reconozca
     val umbral: Double,
     val model_version: String
 )
