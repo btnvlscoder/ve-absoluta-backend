@@ -18,15 +18,19 @@ app = FastAPI(
 # IMPORTANTE: Apuntamos a tu REPOSITORIO DE MODELOS en la nube
 MODEL_DIR = "btnvlscoder/ve-absoluta-vit-v2" 
 
+procesador = None
+modelo = None
+error_inicializacion = None
+
 print(f"Descargando motor de IA desde: {MODEL_DIR}...")
 try:
-    # Transformers descargará los archivos a la caché del Space
     procesador = AutoImageProcessor.from_pretrained(MODEL_DIR)
     modelo = AutoModelForImageClassification.from_pretrained(MODEL_DIR)
     modelo.eval() 
     print("...Vision Transformer cargado y listo para la acción.")
 except Exception as e:
-    print(f"...Error al cargar el modelo: {e}")
+    error_inicializacion = str(e)
+    print(f"❌ Error CRÍTICO al cargar el modelo: {e}")
 
 # =====================================================================
 # ESQUEMA DE DATOS
@@ -39,10 +43,16 @@ class PeticionImagen(BaseModel):
 # =====================================================================
 @app.get("/")
 def health_check():
+    if error_inicializacion:
+        return {"status": "error", "detalle": f"El modelo no cargó: {error_inicializacion}"}
     return {"status": "online", "motor": "ViT V2 - Cloud", "ready": True}
 
 @app.post("/api/v1/detect")
 async def analizar_imagen(peticion: PeticionImagen):
+    # Si el modelo falló al inicio, le avisamos a Kotlin inmediatamente
+    if error_inicializacion:
+        raise HTTPException(status_code=500, detail=f"Fallo crítico al arrancar la IA: {error_inicializacion}")
+        
     try:
         # 1. Descargamos la imagen directo a RAM
         respuesta_http = requests.get(peticion.url, timeout=10)
