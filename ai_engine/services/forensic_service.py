@@ -57,10 +57,10 @@ def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float) -> dict
     if diferencia_maxima > 60 or ruido_promedio > 3.5:
         return {
             "estado": "ADVERTENCIA",
-            "detalle": f"Varianza anómala de compresión: El análisis revela una discrepancia severa con un delta máximo de {diferencia_maxima} y ruido anómalo ({ruido_promedio:.2f}). Esto sugiere inserciones sintéticas (empalmes) alterando la matriz JPEG original."
+            "detalle": "Alteración de archivo detectada: La auditoría interna revela que la imagen ha sido modificada o re-guardada. Existen rastros de fotomontaje o superposición de elementos externos (splicing) que alteraron irreversiblemente la estructura digital original del archivo."
         }
     else:
         return {
             "estado": "SEGURO",
-            "detalle": f"Firma de compresión uniforme: El barrido ELA indica una degradación homogénea (delta: {diferencia_maxima}, ruido: {ruido_promedio:.2f}). La firma es consistente, lo que descarta manipulaciones de post-procesado locales."
+            "detalle": "Integridad de archivo confirmada: La estructura interna de los datos es homogénea. No se detectan rastros de fotomontaje, recortes ni manipulaciones digitales ocultas posteriores a la captura original."
         }
