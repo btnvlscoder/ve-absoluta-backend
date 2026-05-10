@@ -126,7 +126,7 @@ class AnalisisService(
             id = analisisGuardado.id,
             nombreArchivo = analisisGuardado.nombreArchivo,
             veredicto_final = pythonResult?.veredicto_final ?: "ERROR",
-            confianza_global = pythonResult?.confianza_global ?: 0.0,
+            confianza_global = pythonResult?.confianza_global ?: 0.0 / 100.0,
             heatmap_base64 = pythonResult?.heatmap_base64,
             desglose_pericial = pythonResult?.desglose_pericial
         )
