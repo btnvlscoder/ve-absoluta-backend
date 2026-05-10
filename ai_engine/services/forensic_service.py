@@ -49,3 +49,18 @@ def realizar_analisis_ela(imagen_original: Image.Image, calidad_ela: int = 90) -
         }
     except Exception as e:
         return {"estado": "Error", "detalle": f"Fallo en análisis ELA: {str(e)}"}
+
+def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float) -> dict:
+    """
+    Traduce los cálculos de compresión a una justificación técnica.
+    """
+    if diferencia_maxima > 60 or ruido_promedio > 3.5:
+        return {
+            "estado": "ADVERTENCIA",
+            "detalle": f"Varianza anómala de compresión: El análisis revela una discrepancia severa con un delta máximo de {diferencia_maxima} y ruido anómalo ({ruido_promedio:.2f}). Esto sugiere inserciones sintéticas (empalmes) alterando la matriz JPEG original."
+        }
+    else:
+        return {
+            "estado": "SEGURO",
+            "detalle": f"Firma de compresión uniforme: El barrido ELA indica una degradación homogénea (delta: {diferencia_maxima}, ruido: {ruido_promedio:.2f}). La firma es consistente, lo que descarta manipulaciones de post-procesado locales."
+        }

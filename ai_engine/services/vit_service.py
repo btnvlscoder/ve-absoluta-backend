@@ -115,7 +115,30 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         return {
             "prediccion": label.upper(),
             "confianza": round(confianza * 100, 2),
-            "heatmap": f"data:image/jpeg;base64,{heatmap_b64}"
+            "heatmap": f"data:image/jpeg;base64,{heatmap_b64}",
+            "grid_attn": grid_attn
         }
     except Exception as e:
         return {"error": f"Fallo en motor ViT: {str(e)}"}
+
+def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.ndarray) -> dict:
+    """Traduce el mapa de calor del ViT a una justificación técnica."""
+    h, w = heatmap_matrix.shape
+    y_max, x_max = np.unravel_index(np.argmax(heatmap_matrix), heatmap_matrix.shape)
+    
+    if y_max < h * 0.3 or y_max > h * 0.7 or x_max < w * 0.3 or x_max > w * 0.7:
+        sector = "perimetral"
+    else:
+        sector = "central"
+
+    if prediccion == "FAKE":
+        return {
+            "estado": "CRÍTICO",
+            "detalle": f"Anomalía de textura {sector}: El mecanismo de auto-atención del modelo Vision Transformer (ViT) ha detectado inconsistencias estructurales en la región {sector}. Los parches muestran una falta de coherencia espacial típica de síntesis por redes neuronales, alcanzando un índice de anomalía del {confianza:.1f}%."
+        }
+    else:
+        return {
+            "estado": "SEGURO",
+            "detalle": "Coherencia estructural validada: La matriz de auto-atención confirma una distribución natural de los píxeles. Las relaciones espaciales entre los parches mantienen la coherencia física esperada de una captura óptica real."
+        }
+        
