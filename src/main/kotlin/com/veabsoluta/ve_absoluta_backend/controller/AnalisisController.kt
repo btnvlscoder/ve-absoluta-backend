@@ -1,6 +1,5 @@
 package com.veabsoluta.ve_absoluta_backend.controller
 
-import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.service.AnalisisService
 import com.veabsoluta.ve_absoluta_backend.service.storage.StorageService
 import org.slf4j.LoggerFactory
@@ -11,17 +10,8 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.server.ResponseStatusException
-import reactor.core.publisher.Mono
 import java.util.UUID
 
-/**
- * Controlador REST para detección de deepfakes.
- * 
- * Validaciones implementadas:
- * - Tipo MIME: solo acepta image/jpeg, image/png, image/webp
- * - Tamaño máximo: 10MB
- * - Archivo no vacío
- */
 @RestController
 @RequestMapping("/api/v1/analizar")
 class AnalisisController(  
@@ -31,9 +21,8 @@ class AnalisisController(
     
     private val log = LoggerFactory.getLogger(AnalisisController::class.java)
     
-    // Constantes de validación
     companion object {
-        private const val MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
+        private const val MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 
         private val ALLOWED_MIME_TYPES = setOf(
             MediaType.IMAGE_JPEG_VALUE,
             MediaType.IMAGE_PNG_VALUE,
@@ -42,15 +31,14 @@ class AnalisisController(
     }
 
     @PostMapping("/upload")
-    fun upload(@RequestParam("file") file: MultipartFile): ResponseEntity<Analisis> {        val traceId = UUID.randomUUID().toString()
+    fun upload(@RequestParam("file") file: MultipartFile): ResponseEntity<Any> {
+        val traceId = UUID.randomUUID().toString()
         MDC.put("traceId", traceId)
         
         log.info("Request upload recibido - traceId: {}, filename: {}, size: {}", 
             traceId, file.originalFilename, file.size)
         
-        // ========== VALIDACIONES ==========
         validarArchivo(file)
-        // ==================================
         
         val nombreOriginal = file.originalFilename?.takeIf { it.isNotBlank() } 
             ?: "imagen_${System.currentTimeMillis()}.jpg"
@@ -59,43 +47,30 @@ class AnalisisController(
         val url = storageService.upload(file)
         log.debug("Archivo subido al storage - traceId: {}, url: {}", traceId, url)
         
-        // 2. Llamamos al orquestador IA
+        // 2. Llamamos al orquestador IA 
+        // El resultado ahora es un AnalisisForenseResponse
         val resultado = analisisService.ejecutarDeteccion(url, nombreOriginal)
-        log.info("Análisis completado - traceId: {}, prediction: {}, confidence: {}", 
-            traceId, resultado.prediccion, resultado.confianza)
         
-        // 3. Devolvemos el JSON al frontend
+        //Los nombres de los campos en el log ahora coinciden con el nuevo DTO
+        log.info("Análisis completado - traceId: {}, prediction: {}, confidence: {}", 
+            traceId, resultado.veredicto_final, resultado.confianza_global)
+        
+        // 3. Devolvemos el Súper JSON al frontend
         return ResponseEntity.ok(resultado)
     }
     
-    /**
-     * Valida el archivo recibido.
-     * @throws ResponseStatusException si la validación falla
-     */
     internal fun validarArchivo(file: MultipartFile) {
-        // Validación 1: Archivo no vacío
-        require(!file.isEmpty) { 
-            throw ResponseStatusException(
-                HttpStatus.BAD_REQUEST, 
-                "El archivo no puede estar vacío"
-            )
+        if (file.isEmpty) { 
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "El archivo no puede estar vacío")
         }
         
-        // Validación 2: Tamaño máximo
-        require(file.size <= MAX_FILE_SIZE_BYTES) {
-            throw ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "El archivo excede el tamaño máximo de 10MB"
-            )
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "El archivo excede el tamaño máximo de 10MB")
         }
         
-        // Validación 3: Tipo MIME
         val contentType = file.contentType
-        require(contentType != null && contentType in ALLOWED_MIME_TYPES) {
-            throw ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Tipo de archivo no válido. Solo se aceptan: JPEG, PNG, WebP"
-            )
+        if (contentType == null || contentType !in ALLOWED_MIME_TYPES) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Tipo de archivo no válido. Solo se aceptan: JPEG, PNG, WebP")
         }
     }
 }

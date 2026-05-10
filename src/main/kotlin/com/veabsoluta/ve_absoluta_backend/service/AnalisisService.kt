@@ -146,13 +146,13 @@ class AnalisisService(
             .onStatus({ status -> status.is4xxClientError }) { clientResponse ->
                 log.warn("IA response 4xx - traceId: {}, status: {}", traceId, clientResponse.statusCode())
                 clientResponse.bodyToMono(String::class.java).flatMap { body ->
-                    Mono.error(AnalisisServiceException("Error 4xx IA: $body", ErrorCode.INVALID_IMAGE))
+                    Mono.error(AnalisisServiceException("Error 4xx IA: $body", codigo = ErrorCode.INVALID_IMAGE))
                 }
             }
             .onStatus({ status -> status.is5xxServerError }) { clientResponse ->
                 log.error("IA response 5xx - traceId: {}, status: {}", traceId, clientResponse.statusCode())
                 clientResponse.bodyToMono(String::class.java).flatMap { body ->
-                    Mono.error(AnalisisServiceException("Error 5xx IA: $body", ErrorCode.IA_SERVICE_ERROR))
+                    Mono.error(AnalisisServiceException("Error 5xx IA: $body", codigo = ErrorCode.IA_SERVICE_ERROR))
                 }
             }
             .bodyToMono(PythonResponse::class.java)
