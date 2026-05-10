@@ -41,16 +41,24 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         confianza = probs[0][pred_idx].item()
 
         # 3. Generación del Mapa de Atención (Heatmap)
-        # Extraemos la atención de la última capa
         attentions = outputs.attentions[-1]
-        # Promediamos las cabezas de atención del token [CLS]
         cls_attn = attentions[0, :, 0, 1:].mean(dim=0)
         
-        # Redimensionar a grid cuadrado (ej. 14x14)
-        grid_size = int(np.sqrt(cls_attn.shape[0]))
-        grid_attn = cls_attn.reshape(grid_size, grid_size).numpy()
+        # Calculamos la cuadrícula según la imagen real
+        # Obtenemos las dimensiones exactas que el procesador le entregó al modelo
+        _, _, alto_procesado, ancho_procesado = inputs['pixel_values'].shape
         
-        # Normalizar para visualización
+        # Obtenemos el tamaño del parche desde la configuración de tu modelo
+        patch_size = model.config.patch_size if hasattr(model.config, 'patch_size') else 16
+        
+        # Calculamos columnas y filas dinámicamente (ej. 6x8 en lugar de forzar un cuadrado)
+        h_grid = alto_procesado // patch_size
+        w_grid = ancho_procesado // patch_size
+        
+        # Reshape dinámico perfecto
+        grid_attn = cls_attn.reshape(h_grid, w_grid).numpy()
+        
+        # Normalizar para visualización (0 a 255)
         grid_attn = (grid_attn - grid_attn.min()) / (grid_attn.max() - grid_attn.min())
         grid_attn = np.uint8(255 * grid_attn)
 
