@@ -7,7 +7,6 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
@@ -18,41 +17,60 @@ import java.io.IOException
 import java.time.Duration
 import java.util.UUID
 
-// DTOs para comunicación con el servicio IA
+// ==========================================
+// 1. DTOs PARA LA IA (EL SÚPER JSON)
+// ==========================================
 data class AnalisisRequest(
-    val url: String,          // debe ser 'url' para que FastAPI lo reconozca
-    val umbral: Double,
-    val model_version: String
+    val url: String,
+    val umbral: Double = 0.65,
+    val model_version: String = "VE_ABSOLUTA_ViT_V2"
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class PythonResponse(
-    val status: String?,
-    val prediccion: String?, // Ahora viene como "prediccion" (español) desde tu app.py
-    val confianza: Double?,
+    val veredicto_final: String?,
+    val confianza_global: Double?,
+    val heatmap_base64: String?,
+    val desglose_pericial: DesglosePericialDTO?,
     val metadata: Map<String, Any>? = null
 ) {
     fun validate(): PythonResponse {
-        require(!prediccion.isNullOrBlank()) { "Respuesta IA inválida: prediccion vacío" }
-        require(confianza != null) { "Respuesta IA inválida: confianza nula" }
+        require(!veredicto_final.isNullOrBlank()) { "Respuesta IA inválida: veredicto vacío" }
+        require(confianza_global != null) { "Respuesta IA inválida: confianza nula" }
         return this
     }
 }
 
-/**
- * Servicio de orquestación para detección de deepfakes.
- * 
- * Responsabilidades:
- * - Comunicar con el motor IA (FastAPI)
- * - Persistir resultados en PostgreSQL
- * - Manejar errores y timeouts
- */
+data class DesglosePericialDTO(
+    val analisis_ia_vit: DetalleAnalisisDTO?,
+    val analisis_ela: DetalleAnalisisDTO?
+)
+
+data class DetalleAnalisisDTO(
+    val estado: String?,
+    val detalle: String?,
+    val metricas: Map<String, Any>? = null
+)
+
+// DTO para enviar al Frontend (Combina datos de la BD y de la IA)
+data class AnalisisForenseResponse(
+    val id: Any?, // ID de la base de datos
+    val nombreArchivo: String,
+    val veredicto_final: String,
+    val confianza_global: Double,
+    val heatmap_base64: String?,
+    val desglose_pericial: DesglosePericialDTO?
+)
+
+// ==========================================
+// 2. EL SERVICIO ORQUESTADOR
+// ==========================================
 @Service
 class AnalisisService(
     private val analisisRepository: AnalisisRepository,
     webClientBuilder: WebClient.Builder
 ) {
-    // ai.service.url=https://btnvlscoder-ve-absoluta-api.hf.space/api/v1/detect
+    // Apuntando al endpoint modularizado en tu Hugging Face
     @Value("\${ai.service.url}")
     private lateinit var aiServiceUrl: String
 
@@ -60,162 +78,120 @@ class AnalisisService(
         webClientBuilder
             .baseUrl(aiServiceUrl)
             .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            // Aumentamos timeout para el "Cold Start" de Hugging Face
+            .codecs { configurer -> 
+                // Aumentamos el límite de memoria del WebClient para soportar el Base64 gigante del mapa de calor (10MB)
+                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) 
+            }
             .build()
     }
     
     private val log = LoggerFactory.getLogger(AnalisisService::class.java)
     
-    // Circuit Breaker para proteger contra caídas del servicio IA
     private val circuitBreaker: CircuitBreaker by lazy {
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
-            .failureRateThreshold(50.0f) // Abre si 50% de llamadas fallan
-            .slowCallRateThreshold(50.0f) // Abre si 50% de llamadas son lentas
-            .slowCallDurationThreshold(Duration.ofSeconds(30)) // Llamada lenta > 30s
-            .waitDurationInOpenState(Duration.ofSeconds(60)) // Espera 60s en estado abierto
+            .failureRateThreshold(50.0f)
+            .slowCallRateThreshold(50.0f)
+            .slowCallDurationThreshold(Duration.ofSeconds(45)) // Aumentado por el análisis matemático
+            .waitDurationInOpenState(Duration.ofSeconds(60))
             .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
-            .slidingWindowSize(10) // Últimas 10 llamadas
-            .minimumNumberOfCalls(5) // Mínimo 5 llamadas para evaluar
-            .permittedNumberOfCallsInHalfOpenState(3) // 3 llamadas de prueba en half-open
+            .slidingWindowSize(10)
+            .minimumNumberOfCalls(5)
+            .permittedNumberOfCallsInHalfOpenState(3)
             .automaticTransitionFromOpenToHalfOpenEnabled(true)
             .build())
     }
 
     /**
      * Orquestador principal: delega la inferencia al microservicio de Python
-     * @return Analisis con el resultado de la detección
-     * @throws AnalisisServiceException si falla la comunicación
      */
-    fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): Analisis {
+    fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): AnalisisForenseResponse {
         val request = AnalisisRequest(
-            url = rutaImagen, // URL de Cloudinary
-            umbral = 0.65,
-            model_version = "VE_ABSOLUTA_ViT_V2"
+            url = rutaImagen
         )
 
+        // 1. Llamamos a la IA (Puede tardar por el cálculo de ELA y ViT)
         val pythonResult = realizarPeticionIAInternal(request).block()
 
+        // 2. Persistimos los datos básicos en PostgreSQL para el historial
         val nuevoRegistro = Analisis(
             nombreArchivo = nombreArchivo,
             rutaArchivo = rutaImagen,
-            prediccion = pythonResult?.prediccion ?: "ERROR",
-            confianza = (pythonResult?.confianza ?: 0.0) / 100.0 // Normalizamos a 0.0-1.0 si es necesario
+            prediccion = pythonResult?.veredicto_final ?: "ERROR",
+            confianza = (pythonResult?.confianza_global ?: 0.0) / 100.0 // BD guarda 0.0 a 1.0
         )
+        val analisisGuardado = analisisRepository.save(nuevoRegistro)
 
-        return analisisRepository.save(nuevoRegistro)
+        // 3. Empaquetamos todo (Datos de BD + Evidencia Forense) para React
+        return AnalisisForenseResponse(
+            id = analisisGuardado.id,
+            nombreArchivo = analisisGuardado.nombreArchivo,
+            veredicto_final = pythonResult?.veredicto_final ?: "ERROR",
+            confianza_global = pythonResult?.confianza_global ?: 0.0,
+            heatmap_base64 = pythonResult?.heatmap_base64,
+            desglose_pericial = pythonResult?.desglose_pericial
+        )
     }
     
-    /**
-     * Implementación interna de la petición HTTP al servicio IA usando WebClient reactivo
-     */
     internal fun realizarPeticionIAInternal(request: AnalisisRequest): Mono<PythonResponse> {
         val traceId = MDC.get("traceId") ?: UUID.randomUUID().toString()
         MDC.put("traceId", traceId)
         
-        // Log estructurado del request
-        log.info("IA request iniciada - traceId: {}, url: {}, umbral: {}", 
-            traceId, request.url, request.umbral)
+        log.info("IA request iniciada - traceId: {}, url: {}", traceId, request.url)
 
         return webClient.post()
-            .uri("")
+            .uri("") // Asumimos que aiServiceUrl ya incluye el /api/v1/analizar-completo
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(request)
             .retrieve()
             .onStatus({ status -> status.is4xxClientError }) { clientResponse ->
-                log.warn("IA response 4xx - traceId: {}, status: {}, no se reintentará", 
-                    traceId, clientResponse.statusCode())
-                clientResponse.bodyToMono(String::class.java)
-                    .flatMap { body ->
-                        Mono.error(AnalisisServiceException(
-                            message = "Error del cliente al servicio IA: ${clientResponse.statusCode()} - $body",
-                            codigo = ErrorCode.INVALID_IMAGE
-                        ))
-                    }
+                log.warn("IA response 4xx - traceId: {}, status: {}", traceId, clientResponse.statusCode())
+                clientResponse.bodyToMono(String::class.java).flatMap { body ->
+                    Mono.error(AnalisisServiceException("Error 4xx IA: $body", ErrorCode.INVALID_IMAGE))
+                }
             }
             .onStatus({ status -> status.is5xxServerError }) { clientResponse ->
-                log.error("IA response 5xx - traceId: {}, status: {}, se reintentará", 
-                    traceId, clientResponse.statusCode())
-                clientResponse.bodyToMono(String::class.java)
-                    .flatMap { body ->
-                        Mono.error(AnalisisServiceException(
-                            message = "Error interno del servicio IA: ${clientResponse.statusCode()} - $body",
-                            codigo = ErrorCode.IA_SERVICE_ERROR
-                        ))
-                    }
+                log.error("IA response 5xx - traceId: {}, status: {}", traceId, clientResponse.statusCode())
+                clientResponse.bodyToMono(String::class.java).flatMap { body ->
+                    Mono.error(AnalisisServiceException("Error 5xx IA: $body", ErrorCode.IA_SERVICE_ERROR))
+                }
             }
             .bodyToMono(PythonResponse::class.java)
-            .timeout(Duration.ofSeconds(60)) // Response timeout total
-            .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(500))
-                .filter { throwable ->
-                    when (throwable) {
-                        is IOException -> true
-                        is WebClientResponseException -> throwable.statusCode.is5xxServerError
-                        else -> false
-                    }
-                })
+            .timeout(Duration.ofSeconds(90)) // Timeout holgado para procesamiento profundo
+            .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(1000))
+                .filter { throwable -> throwable is WebClientResponseException && throwable.statusCode.is5xxServerError }
+            )
             .map { response -> response.validate() }
             .map { pythonResult ->
-                val prediccion = pythonResult.prediccion ?: throw IllegalStateException("La prediccion no debe ser nula")
-                val confianza = pythonResult.confianza ?: throw IllegalStateException("La confianza no debe ser nula")
-                
+                val prediccion = pythonResult.veredicto_final ?: throw IllegalStateException("Veredicto nulo")
                 val prediccionNormalizada = normalizarPrediccion(prediccion)
-                pythonResult.copy(prediccion = prediccionNormalizada)
+                pythonResult.copy(veredicto_final = prediccionNormalizada)
             }
-            .onErrorResume(WebClientResponseException::class.java) { e ->
-                log.error("IA request fallida - traceId: {}, status: {}, message: {}", 
-                    traceId, e.statusCode, e.responseBodyAsString)
-                Mono.error(e)
-            }
-            .onErrorResume(IllegalArgumentException::class.java) { e ->
-                log.error("IA response validación fallida - traceId: {}, error: {}", 
-                    traceId, e.message)
-                Mono.error(AnalisisServiceException(
-                    message = "Respuesta inválida del servicio IA: ${e.message}",
-                    cause = e,
-                    codigo = ErrorCode.IA_SERVICE_ERROR
-                ))
-            }
-            .onErrorResume(Exception::class.java) { e ->
-                log.error("IA request error de conexión - traceId: {}, error: {}", 
-                    traceId, e.message)
-                Mono.error(AnalisisServiceException(
-                    message = "No se pudo conectar al servicio IA: ${e.message}",
-                    cause = e,
-                    codigo = ErrorCode.IA_SERVICE_UNAVAILABLE
-                ))
+            .onErrorMap { e -> 
+                AnalisisServiceException("Fallo en la comunicación con el motor forense: ${e.message}", e, ErrorCode.IA_SERVICE_UNAVAILABLE) 
             }
     }
 
     private fun normalizarPrediccion(prediccion: String): String {
         val normalized = prediccion.trim().lowercase()
         return when {
-            normalized.contains("fake") || normalized.contains("artificial") || normalized.contains("manipulated") -> "FAKE"
-            normalized.contains("real") || normalized.contains("authentic") || normalized.contains("genuine") -> "REAL"
-            else -> throw AnalisisServiceException(
-                message = "Predicción IA no reconocida: '$prediccion'",
-                codigo = ErrorCode.IA_SERVICE_ERROR
-            )
+            normalized.contains("fake") || normalized.contains("artificial") -> "FAKE"
+            normalized.contains("real") || normalized.contains("authentic") -> "REAL"
+            else -> throw AnalisisServiceException("Predicción IA no reconocida: '$prediccion'", null, ErrorCode.IA_SERVICE_ERROR)
         }
     }
 }
 
-/**
- * Excepción personalizada para el servicio de análisis
- */
 class AnalisisServiceException(
     message: String,
     cause: Throwable? = null,
     val codigo: ErrorCode = ErrorCode.UNKNOWN
 ) : RuntimeException(message, cause)
 
-/**
- * Códigos de error para manejo estructurado
- */
 enum class ErrorCode {
-    IA_SERVICE_UNAVAILABLE,  // No se pudo conectar al servicio
-    IA_SERVICE_ERROR,        // El servicio respondió con error
-    INVALID_IMAGE,          // La imagen no es válida
-    TIMEOUT,                // La petición excedió el tiempo
-    STORAGE_ERROR,          // Error de almacenamiento
-    UNKNOWN                 // Error no categorizado
+    IA_SERVICE_UNAVAILABLE,
+    IA_SERVICE_ERROR,
+    INVALID_IMAGE,
+    TIMEOUT,
+    STORAGE_ERROR,
+    UNKNOWN
 }
