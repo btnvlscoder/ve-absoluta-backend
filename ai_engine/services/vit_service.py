@@ -50,50 +50,26 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         num_patches = cls_attn.shape[0]
 
         # ALGORITMO DINÁMICO DE FACTORIZACIÓN 2D
-        # 1. Algunos modelos (como DeiT) tienen tokens especiales extra.
-        # Si quitando 1 token logramos un cuadrado perfecto (ej. 50 -> 49 = 7x7), lo ignoramos.
         if int(np.sqrt(num_patches))**2 != num_patches:
             if int(np.sqrt(num_patches - 1))**2 == (num_patches - 1):
                 cls_attn = cls_attn[1:] 
                 num_patches -= 1
         
-        # 2. Encontramos los factores más cercanos para armar un rectángulo/cuadrado perfecto
         lado_a = int(np.sqrt(num_patches))
         while num_patches % lado_a != 0:
             lado_a -= 1
         lado_b = num_patches // lado_a
         
-        # Asignamos las dimensiones de la grilla (ej. 48 se convierte automáticamente en 6x8)
         h_grid, w_grid = min(lado_a, lado_b), max(lado_a, lado_b)
         
-        # Convertimos la secuencia 1D en una matriz 2D exacta sin romper la memoria
         grid_attn = cls_attn.reshape(h_grid, w_grid).numpy()
         
-        # Normalizamos para la visualización de colores (0 a 255)
         grid_attn = (grid_attn - grid_attn.min()) / (grid_attn.max() - grid_attn.min())
         grid_attn = np.uint8(255 * grid_attn)
-
-        # OpenCV estira esta pequeña grilla perfecta al tamaño gigante de la foto original
-        img_np = np.array(imagen_pil)
-        h_img, w_img = img_np.shape[:2]
-        attn_resized = cv2.resize(grid_attn, (w_img, h_img))
-        heatmap_color = cv2.applyColorMap(attn_resized, cv2.COLORMAP_JET)
-        
-        # Fusionamos las imágenes
-        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        overlay = cv2.addWeighted(img_bgr, 0.6, heatmap_color, 0.4, 0)
-        overlay_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
-
-        # Conversión a Base64
-        pil_heatmap = Image.fromarray(overlay_rgb)
-        buffered = BytesIO()
-        pil_heatmap.save(buffered, format="JPEG")
-        heatmap_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         # ==========================================
         # 4. Superposición sobre la imagen original
         # ==========================================
-
         img_np = np.array(imagen_pil)
         h, w = img_np.shape[:2]
         attn_resized = cv2.resize(grid_attn, (w, h))
@@ -106,7 +82,6 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         # ==========================================
         # 5. Conversión a Base64
         # ==========================================
-
         pil_heatmap = Image.fromarray(overlay_rgb)
         buffered = BytesIO()
         pil_heatmap.save(buffered, format="JPEG")
@@ -123,6 +98,14 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
 
 def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.ndarray) -> dict:
     """Traduce el mapa de calor del ViT a una justificación técnica."""
+    
+    # 🚀 PARCHE DE CONVERSIÓN
+    if isinstance(heatmap_matrix, list):
+        heatmap_matrix = np.array(heatmap_matrix)
+
+    if heatmap_matrix is None:
+        return {"estado": "INFO", "detalle": "Análisis completado sin mapa de atención."}
+    
     h, w = heatmap_matrix.shape
     y_max, x_max = np.unravel_index(np.argmax(heatmap_matrix), heatmap_matrix.shape)
     
@@ -141,4 +124,3 @@ def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.
             "estado": "SEGURO",
             "detalle": "Estructura óptica validada: La evidencia presenta una distribución natural de los píxeles. Las luces, sombras y micro-texturas mantienen la coherencia física esperada de una fotografía real, sin indicios de generación artificial."
         }
-        
