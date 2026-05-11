@@ -50,10 +50,25 @@ def realizar_analisis_ela(imagen_original: Image.Image, calidad_ela: int = 90) -
     except Exception as e:
         return {"estado": "Error", "detalle": f"Fallo en análisis ELA: {str(e)}"}
 
+def extraer_huella_sensor(imagen_pil: Image.Image) -> float:
+    """
+    Extrae el ruido residual (huella estática del sensor) usando un filtro Laplaciano.
+    """
+    # 1. Convertir la imagen a escala de grises usando OpenCV
+    img_cv = np.array(imagen_pil.convert('L'))
+    
+    # 2. Aplicar filtro Laplaciano (Paso alto para aislar micro-texturas y ruido de hardware)
+    ruido_laplaciano = cv2.Laplacian(img_cv, cv2.CV_64F)
+    
+    # 3. Calcular la varianza (Qué tan disperso y real es el ruido)
+    varianza = ruido_laplaciano.var()
+    
+    return float(varianza)
+
 def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float, varianza_sensor: float) -> dict:
     """Traduce los cálculos de compresión y ruido de sensor a una justificación técnica."""
     
-    # REGLA DE ORO: Si la varianza del sensor es alta, es una cámara física real.
+    # Si la varianza del sensor es alta, es una cámara física real.
     # Perdonamos los niveles de compresión porque probablemente pasó por Lightroom/Photoshop.
     if varianza_sensor > 150.0: 
         return {
@@ -71,18 +86,3 @@ def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float, varianz
             "estado": "SEGURO",
             "detalle": f"Firma digital uniforme: Degradación homogénea detectada (Delta: {diferencia_maxima}). La matriz es consistente, lo que descarta manipulaciones locales severas o inserciones de fotomontaje."
         }
-
-def extraer_huella_sensor(imagen_pil: Image.Image) -> float:
-    """
-    Extrae el ruido residual (huella estática del sensor) usando un filtro Laplaciano.
-    """
-    # 1. Convertir la imagen a escala de grises usando OpenCV
-    img_cv = np.array(imagen_pil.convert('L'))
-    
-    # 2. Aplicar filtro Laplaciano (Paso alto para aislar micro-texturas y ruido de hardware)
-    ruido_laplaciano = cv2.Laplacian(img_cv, cv2.CV_64F)
-    
-    # 3. Calcular la varianza (Qué tan disperso y real es el ruido)
-    varianza = ruido_laplaciano.var()
-    
-    return float(varianza)
