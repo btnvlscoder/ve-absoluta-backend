@@ -43,8 +43,8 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     varianza_sensor = extraer_huella_sensor(imagen)
 
 
-# ==========================================
-    # 🧠 MOTOR DE CONSENSO MULTIMODAL
+    # ==========================================
+    # MOTOR DE CONSENSO MULTIMODAL
     # ==========================================
     # Si la IA dice REAL, pero con baja confianza, usamos la evidencia física para apoyarla.
     # Un sensor real suele tener una varianza > 100.
