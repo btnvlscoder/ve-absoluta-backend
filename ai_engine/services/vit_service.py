@@ -116,7 +116,7 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
             "prediccion": label.upper(),
             "confianza": round(confianza * 100, 2),
             "heatmap": f"data:image/jpeg;base64,{heatmap_b64}",
-            
+            "grid_attn": grid_attn.tolist() if hasattr(grid_attn, 'tolist') else grid_attn 
         }
     except Exception as e:
         return {"error": f"Fallo en motor ViT: {str(e)}"}
