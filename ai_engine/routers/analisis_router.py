@@ -42,28 +42,26 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     # Extraemos la huella física del lente de la cámara
     varianza_sensor = extraer_huella_sensor(imagen)
 
-
     # ==========================================
     # MOTOR DE CONSENSO MULTIMODAL
     # ==========================================
-    # Si la IA dice REAL, pero con baja confianza, usamos la evidencia física para apoyarla.
-    # Un sensor real suele tener una varianza > 100.
-    if veredicto == "REAL" and varianza_sensor > 100.0:
-        # Fórmula de calibración de confianza: 
-        # Reducimos la "duda" a la mitad basándonos en la prueba física irrefutable.
-        # Ej: 58% de certeza -> 42% de duda. La duda baja a 16.8%. Nueva certeza: 83.2%
+    # Bajamos el umbral a 60.0 porque las imágenes de web pierden ruido por compresión
+    if veredicto == "REAL" and varianza_sensor > 60.0:
+        # Apoyo a favor: Reducimos la duda
         duda = 100.0 - confianza
-        confianza_calibrada = 100.0 - (duda * 0.4) 
-        confianza = round(confianza_calibrada, 2)
+        confianza = round(100.0 - (duda * 0.4), 2)
         
-    # Penalización inversa (Opcional pero recomendada): 
-    # Si la IA está "segura" de que es REAL, pero NO hay huella de cámara (imagen plástica)
-    elif veredicto == "REAL" and varianza_sensor < 50.0:
-        duda = 100.0 - confianza
-        confianza_calibrada = confianza - (confianza * 0.2) # Le quitamos un 20% de credibilidad
-        confianza = round(confianza_calibrada, 2)
+    elif veredicto == "REAL" and varianza_sensor < 40.0: # Bajamos el castigo a 40.0
+        # Penalización en contra
+        confianza_calibrada = confianza - (confianza * 0.2)
+        
+        if confianza_calibrada < 50.0:
+            veredicto = "FAKE"
+            confianza = round(100.0 - confianza_calibrada, 2)
+        else:
+            confianza = round(confianza_calibrada, 2)
 
-    # Le pasamos la varianza a la narrativa para los textos
+    # Textos
     texto_vit = generar_narrativa_vit(veredicto, confianza, matriz_atencion)
     texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor)
 
@@ -83,6 +81,8 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         },
         "metadata": {
             "sistema": "VE ABSOLUTA Enterprise",
-            "version": "2.3.0-SRM" # Actualizamos versión
+            "version": "2.3.1-SRM",
+            # INYECTAMOS LA VARIANZA PARA DEBUGEARLA
+            "metrica_oculta_srm": round(varianza_sensor, 2)
         }
     }
