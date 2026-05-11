@@ -39,12 +39,33 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     dif_max = res_ela["metricas"]["diferencia_maxima"]
     ruido_prom = res_ela["metricas"]["ruido_promedio"]
 
-    # 🚀 NUEVO: Extraemos la huella física del lente de la cámara
+    # Extraemos la huella física del lente de la cámara
     varianza_sensor = extraer_huella_sensor(imagen)
 
-    # Le pasamos la varianza a la narrativa para que decida inteligentemente
+
+# ==========================================
+    # 🧠 MOTOR DE CONSENSO MULTIMODAL
+    # ==========================================
+    # Si la IA dice REAL, pero con baja confianza, usamos la evidencia física para apoyarla.
+    # Un sensor real suele tener una varianza > 100.
+    if veredicto == "REAL" and varianza_sensor > 100.0:
+        # Fórmula de calibración de confianza: 
+        # Reducimos la "duda" a la mitad basándonos en la prueba física irrefutable.
+        # Ej: 58% de certeza -> 42% de duda. La duda baja a 16.8%. Nueva certeza: 83.2%
+        duda = 100.0 - confianza
+        confianza_calibrada = 100.0 - (duda * 0.4) 
+        confianza = round(confianza_calibrada, 2)
+        
+    # Penalización inversa (Opcional pero recomendada): 
+    # Si la IA está "segura" de que es REAL, pero NO hay huella de cámara (imagen plástica)
+    elif veredicto == "REAL" and varianza_sensor < 50.0:
+        duda = 100.0 - confianza
+        confianza_calibrada = confianza - (confianza * 0.2) # Le quitamos un 20% de credibilidad
+        confianza = round(confianza_calibrada, 2)
+
+    # Le pasamos la varianza a la narrativa para los textos
     texto_vit = generar_narrativa_vit(veredicto, confianza, matriz_atencion)
-    texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor) # <--- OJO AQUÍ
+    texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor)
 
     return {
         "veredicto_final": veredicto,
