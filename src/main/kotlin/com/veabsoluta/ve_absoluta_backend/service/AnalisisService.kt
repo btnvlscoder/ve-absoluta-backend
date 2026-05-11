@@ -1,5 +1,5 @@
 package com.veabsoluta.ve_absoluta_backend.service
-
+import com.veabsoluta.ve_absoluta_backend.DTO.*
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
@@ -18,59 +18,13 @@ import java.time.Duration
 import java.util.UUID
 
 // ==========================================
-// 1. DTOs PARA LA IA (EL SÚPER JSON)
-// ==========================================
-data class AnalisisRequest(
-    val url: String,
-    val umbral: Double = 0.65,
-    val model_version: String = "VE_ABSOLUTA_ViT_V2"
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class PythonResponse(
-    val veredicto_final: String?,
-    val confianza_global: Double?,
-    val heatmap_base64: String?,
-    val desglose_pericial: DesglosePericialDTO?,
-    val metadata: Map<String, Any>? = null
-) {
-    fun validate(): PythonResponse {
-        require(!veredicto_final.isNullOrBlank()) { "Respuesta IA inválida: veredicto vacío" }
-        require(confianza_global != null) { "Respuesta IA inválida: confianza nula" }
-        return this
-    }
-}
-
-data class DesglosePericialDTO(
-    val analisis_ia_vit: DetalleAnalisisDTO?,
-    val analisis_ela: DetalleAnalisisDTO?
-)
-
-data class DetalleAnalisisDTO(
-    val estado: String?,
-    val detalle: String?,
-    val metricas: Map<String, Any>? = null
-)
-
-// DTO para enviar al Frontend (Combina datos de la BD y de la IA)
-data class AnalisisForenseResponse(
-    val id: Any?, // ID de la base de datos
-    val nombreArchivo: String,
-    val veredicto_final: String,
-    val confianza_global: Double,
-    val heatmap_base64: String?,
-    val desglose_pericial: DesglosePericialDTO?
-)
-
-// ==========================================
-// 2. EL SERVICIO ORQUESTADOR
+// EL SERVICIO ORQUESTADOR
 // ==========================================
 @Service
 class AnalisisService(
     private val analisisRepository: AnalisisRepository,
     webClientBuilder: WebClient.Builder
 ) {
-    // Apuntando al endpoint modularizado en tu Hugging Face
     @Value("\${ai.service.url}")
     private lateinit var aiServiceUrl: String
 
@@ -79,7 +33,6 @@ class AnalisisService(
             .baseUrl(aiServiceUrl)
             .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
             .codecs { configurer -> 
-                // Aumentamos el límite de memoria del WebClient para soportar el Base64 gigante del mapa de calor (10MB)
                 configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) 
             }
             .build()
@@ -91,7 +44,7 @@ class AnalisisService(
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
             .failureRateThreshold(50.0f)
             .slowCallRateThreshold(50.0f)
-            .slowCallDurationThreshold(Duration.ofSeconds(45)) // Aumentado por el análisis matemático
+            .slowCallDurationThreshold(Duration.ofSeconds(45)) 
             .waitDurationInOpenState(Duration.ofSeconds(60))
             .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
             .slidingWindowSize(10)
@@ -126,9 +79,10 @@ class AnalisisService(
             id = analisisGuardado.id,
             nombreArchivo = analisisGuardado.nombreArchivo,
             veredicto_final = pythonResult?.veredicto_final ?: "ERROR",
-            confianza_global = pythonResult?.confianza_global ?: 0.0 / 100.0,
+            confianza_global = pythonResult?.confianza_global ?: 0.0,
             heatmap_base64 = pythonResult?.heatmap_base64,
-            desglose_pericial = pythonResult?.desglose_pericial
+            desglose_pericial = pythonResult?.desglose_pericial,
+            metadata = pythonResult?.metadata // 🚀 AQUÍ PASA LA MÉTRICA SRM INTACTA
         )
     }
     
@@ -139,7 +93,7 @@ class AnalisisService(
         log.info("IA request iniciada - traceId: {}, url: {}", traceId, request.url)
 
         return webClient.post()
-            .uri("") // Asumimos que aiServiceUrl ya incluye el /api/v1/analizar-completo
+            .uri("") 
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(request)
             .retrieve()
@@ -156,7 +110,7 @@ class AnalisisService(
                 }
             }
             .bodyToMono(PythonResponse::class.java)
-            .timeout(Duration.ofSeconds(90)) // Timeout holgado para procesamiento profundo
+            .timeout(Duration.ofSeconds(90)) 
             .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(1000))
                 .filter { throwable -> throwable is WebClientResponseException && throwable.statusCode.is5xxServerError }
             )
