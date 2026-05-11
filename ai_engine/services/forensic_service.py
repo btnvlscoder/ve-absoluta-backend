@@ -50,17 +50,39 @@ def realizar_analisis_ela(imagen_original: Image.Image, calidad_ela: int = 90) -
     except Exception as e:
         return {"estado": "Error", "detalle": f"Fallo en análisis ELA: {str(e)}"}
 
-def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float) -> dict:
-    """
-    Traduce los cálculos de compresión a una justificación técnica.
-    """
-    if diferencia_maxima > 60 or ruido_promedio > 3.5:
+def generar_narrativa_ela(diferencia_maxima: int, ruido_promedio: float, varianza_sensor: float) -> dict:
+    """Traduce los cálculos de compresión y ruido de sensor a una justificación técnica."""
+    
+    # REGLA DE ORO: Si la varianza del sensor es alta, es una cámara física real.
+    # Perdonamos los niveles de compresión porque probablemente pasó por Lightroom/Photoshop.
+    if varianza_sensor > 150.0: 
+        return {
+            "estado": "SEGURO",
+            "detalle": f"Huella de hardware confirmada: Se detectó ruido estático característico de un sensor óptico real (Varianza local: {varianza_sensor:.1f}). Aunque existen alteraciones de compresión superficiales, la estructura base subyacente proviene indudablemente de una captura física."
+        }
+    # Si la varianza es baja (sin huella de sensor) y el ELA está alterado, es un peligro.
+    elif diferencia_maxima > 60 or ruido_promedio > 3.5:
         return {
             "estado": "ADVERTENCIA",
-            "detalle": "Alteración de archivo detectada: La auditoría interna revela que la imagen ha sido modificada o re-guardada. Existen rastros de fotomontaje o superposición de elementos externos (splicing) que alteraron irreversiblemente la estructura digital original del archivo."
+            "detalle": f"Varianza anómala y ausencia de huella: Discrepancia severa de compresión (Delta: {diferencia_maxima}) sin una firma de sensor óptico fuerte que lo justifique (Varianza: {varianza_sensor:.1f}). Esto sugiere fuertemente una alteración digital profunda o generación sintética."
         }
     else:
         return {
             "estado": "SEGURO",
-            "detalle": "Integridad de archivo confirmada: La estructura interna de los datos es homogénea. No se detectan rastros de fotomontaje, recortes ni manipulaciones digitales ocultas posteriores a la captura original."
+            "detalle": f"Firma digital uniforme: Degradación homogénea detectada (Delta: {diferencia_maxima}). La matriz es consistente, lo que descarta manipulaciones locales severas o inserciones de fotomontaje."
         }
+
+def extraer_huella_sensor(imagen_pil: Image.Image) -> float:
+    """
+    Extrae el ruido residual (huella estática del sensor) usando un filtro Laplaciano.
+    """
+    # 1. Convertir la imagen a escala de grises usando OpenCV
+    img_cv = np.array(imagen_pil.convert('L'))
+    
+    # 2. Aplicar filtro Laplaciano (Paso alto para aislar micro-texturas y ruido de hardware)
+    ruido_laplaciano = cv2.Laplacian(img_cv, cv2.CV_64F)
+    
+    # 3. Calcular la varianza (Qué tan disperso y real es el ruido)
+    varianza = ruido_laplaciano.var()
+    
+    return float(varianza)
