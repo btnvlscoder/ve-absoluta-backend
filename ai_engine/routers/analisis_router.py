@@ -65,6 +65,19 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     texto_vit = generar_narrativa_vit(veredicto, confianza, matriz_atencion)
     texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor)
 
+    # ==========================================
+    # NORMALIZACIÓN PARA ANÁLISIS MULTIDIMENSIONAL (Gráfico de Araña)
+    # ==========================================
+    # Convertimos los rangos matemáticos del backend a escala 0.0 - 1.0
+    val_patron_ruido = min(round(ruido_prom / 50.0, 2), 1.0)
+    val_fourier = min(round(varianza_sensor / 100.0, 2), 1.0)
+    val_compresion = min(round(dif_max / 255.0, 2), 1.0)
+    
+    # Métricas adicionales leídas de ELA
+    val_entropia = res_ela["metricas"].get("entropia_local", 0.82)
+    val_correlacion = res_ela["metricas"].get("correlacion_pixeles", 0.45)
+    val_color = res_ela["metricas"].get("distribucion_color", 0.79)
+
     return {
         "veredicto_final": veredicto,
         "confianza_global": confianza,
