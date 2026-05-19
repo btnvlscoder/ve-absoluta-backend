@@ -83,6 +83,17 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
             "sistema": "VE ABSOLUTA Enterprise",
             "version": "2.3.1-SRM",
             # INYECTAMOS LA VARIANZA PARA DEBUGEARLA
-            "metrica_oculta_srm": round(varianza_sensor, 2)
+            "metrica_oculta_srm": round(varianza_sensor, 2),
+
+        #MÉTRICAS ASOCIADAS AL GRÁFICO RADAR
+        "metricas_heuristicas": [
+                {"parametro": "Patrón de Ruido", "valor": val_patron_ruido, "fullMark": 1},
+                {"parametro": "Frecuencia Fourier", "valor": val_fourier, "fullMark": 1},
+                {"parametro": "Artefactos Compresión", "valor": val_compresion, "fullMark": 1},
+                {"parametro": "Entropía Local", "valor": val_entropia, "fullMark": 1},
+                {"parametro": "Correlación Píxeles", "valor": val_correlacion, "fullMark": 1},
+                {"parametro": "Distribución Color", "valor": val_color, "fullMark": 1}
+            ]
+            
         }
     }
