@@ -24,35 +24,51 @@ def _descargar_imagen(url: str) -> Image.Image:
 
 def generar_capas_forenses(b64_string: str):
     """ Toma el heatmap en base64 de ViT y genera matemáticamente las capas Threshold y Rollout """
-    # 1. Limpiar prefijo base64 si existe
-    if "," in b64_string:
-        b64_data = b64_string.split(",")[1]
-    else:
-        b64_data = b64_string
-        
-    # 2. Decodificar base64 a matriz OpenCV
-    img_data = base64.b64decode(b64_data)
-    np_arr = np.frombuffer(img_data, np.uint8)
-    heatmap_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    # 3. Capa: UMBRAL (Threshold) - Aísla las zonas de alerta máxima
-    gray = cv2.cvtColor(heatmap_cv2, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
-    heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
-    _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
-    b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
-
-    # 4. Capa: ROLLOUT (Propagación de bordes) - Identifica anomalías en contornos
-    blur = cv2.GaussianBlur(gray, (15, 15), 0)
-    edges = cv2.Canny(blur, 50, 150)
-    heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS) # Tonos verde/morado
-    _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
-    b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
-
-    # 5. Asegurar el prefijo de la capa base original
-    b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
+    print("[DEBUG] Iniciando generación de capas forenses...")
     
-    return b64_base, b64_thresh, b64_rollout
+    try:
+        # 1. Limpiar prefijo base64 si existe
+        if "," in b64_string:
+            b64_data = b64_string.split(",")[1]
+        else:
+            b64_data = b64_string
+            
+        # 2. Decodificar base64 a matriz OpenCV
+        img_data = base64.b64decode(b64_data)
+        np_arr = np.frombuffer(img_data, np.uint8)
+        heatmap_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        # Verificación de seguridad
+        if heatmap_cv2 is None:
+            print("[ERROR] OpenCV no pudo leer la imagen base64. Devolviendo capas nulas.")
+            b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
+            return b64_base, None, None
+
+        # 3. Capa: UMBRAL (Threshold) - Aísla las zonas de alerta máxima
+        gray = cv2.cvtColor(heatmap_cv2, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
+        heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
+        _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
+        b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
+
+        # 4. Capa: ROLLOUT (Propagación de bordes)
+        blur = cv2.GaussianBlur(gray, (15, 15), 0)
+        edges = cv2.Canny(blur, 50, 150)
+        heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
+        _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
+        b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
+
+        # 5. Asegurar el prefijo de la capa base
+        b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
+        
+        print("[DEBUG] ¡Capas forenses generadas con éxito!")
+        return b64_base, b64_thresh, b64_rollout
+
+    except Exception as e:
+        print(f"[ERROR CRÍTICO] Fallo al generar las capas: {e}")
+        # Si todo explota, al menos devolvemos la capa base para que el front no se quede en blanco
+        b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
+        return b64_base, None, None
 
 @router.post("/analizar-completo")
 async def analisis_pericial_completo(peticion: PeticionImagen):
