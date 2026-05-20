@@ -81,6 +81,8 @@ class AnalisisService(
             veredicto_final = pythonResult?.veredicto_final ?: "ERROR",
             confianza_global = pythonResult?.confianza_global ?: 0.0,
             heatmap_base64 = pythonResult?.heatmap_base64,
+            heatmap_threshold = pythonResult?.heatmap_threshold,
+            heatmap_rollout = pythonResult?.heatmap_rollout,
             desglose_pericial = pythonResult?.desglose_pericial,
             metadata = pythonResult?.metadata // 🚀 AQUÍ PASA LA MÉTRICA SRM INTACTA
         )

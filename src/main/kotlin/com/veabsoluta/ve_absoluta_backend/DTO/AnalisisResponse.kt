@@ -16,6 +16,8 @@ data class PythonResponse(
     val veredicto_final: String?,
     val confianza_global: Double?,
     val heatmap_base64: String?,
+    val heatmap_threshold: String?,
+    val heatmap_rollout: String?,
     val desglose_pericial: DesglosePericialDTO?,
     val metadata: Map<String, Any>? = null // 🚀 Mapeo dinámico para el SRM y futuras métricas
 ) {
@@ -35,6 +37,8 @@ data class AnalisisForenseResponse(
     val veredicto_final: String,
     val confianza_global: Double,
     val heatmap_base64: String?,
+    val heatmap_threshold: String?,
+    val heatmap_rollout: String?,
     val desglose_pericial: DesglosePericialDTO?,
     val metadata: Map<String, Any>? = null 
 )
