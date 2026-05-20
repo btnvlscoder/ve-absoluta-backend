@@ -22,67 +22,51 @@ def _descargar_imagen(url: str) -> Image.Image:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener imagen: {e}")
 
-def generar_capas_forenses(b64_string: str):
-    """ Toma el heatmap en base64 de ViT y genera matemáticamente las capas Threshold y Rollout """
+# CORRECCIÓN APLICADA: Ahora recibe original_img_cv para la fusión visual
+def generar_capas_forenses(b64_string: str, original_img_cv: np.ndarray):
     print("[DEBUG] Iniciando generación de capas forenses...")
-    
     try:
-        # 1. Limpiar prefijo base64 si existe
         if "," in b64_string:
             b64_data = b64_string.split(",")[1]
         else:
             b64_data = b64_string
             
-        # Arreglar el padding de Base64
         b64_data = b64_data + "=" * ((4 - len(b64_data) % 4) % 4)
             
-        # 2. Decodificar base64 a matriz OpenCV
         img_data = base64.b64decode(b64_data)
         np_arr = np.frombuffer(img_data, np.uint8)
         heatmap_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
         if heatmap_cv2 is None:
-            print("[ERROR] OpenCV no pudo leer la imagen base64. Devolviendo capas nulas.")
             b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
             return b64_base, None, None
 
-        # ====================================================
-        # 3. Capa: UMBRAL (Threshold) - Aísla zonas de alerta
-        # ====================================================
+        # --- 3. UMBRAL ---
         gray = cv2.cvtColor(heatmap_cv2, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
-        
         capa_color_jet = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
         
-        # TRUCO DE FUSIÓN: Donde no hay alerta (thresh == 0), devolvemos la imagen original
+        # FUSIÓN: Usamos la foto real de fondo
         umbral_final = capa_color_jet.copy()
-        umbral_final[thresh == 0] = heatmap_cv2[thresh == 0] 
+        umbral_final[thresh == 0] = original_img_cv[thresh == 0] 
         
         _, buffer_thresh = cv2.imencode('.jpg', umbral_final)
         b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
 
-        # ====================================================
-        # 4. Capa: ROLLOUT (Bordes y texturas anómalas)
-        # ====================================================
+        # --- 4. ROLLOUT ---
         blur = cv2.GaussianBlur(gray, (15, 15), 0)
         edges = cv2.Canny(blur, 50, 150)
-        
         capa_color_viridis = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
         
-        # TRUCO DE FUSIÓN: Oscurecemos un 60% la foto original de fondo para que los bordes 
-        # brillantes resalten y parezca un escáner táctico real.
-        fondo_oscurecido = cv2.addWeighted(heatmap_cv2, 0.4, np.zeros_like(heatmap_cv2), 0.6, 0)
+        # FUSIÓN: Oscurecemos la foto real de fondo
+        fondo_oscurecido = cv2.addWeighted(original_img_cv, 0.4, np.zeros_like(original_img_cv), 0.6, 0)
         rollout_final = capa_color_viridis.copy()
         rollout_final[edges == 0] = fondo_oscurecido[edges == 0]
 
         _, buffer_rollout = cv2.imencode('.jpg', rollout_final)
         b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
 
-        # ====================================================
-        # 5. Asegurar el prefijo de la capa base
         b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
-        
-        print("[DEBUG] ¡Capas forenses generadas con éxito!")
         return b64_base, b64_thresh, b64_rollout
 
     except Exception as e:
@@ -90,9 +74,46 @@ def generar_capas_forenses(b64_string: str):
         b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
         return b64_base, None, None
 
+# MATEMÁTICA DE TESIS
+def calcular_metricas_heuristicas(imagen_pil):
+    img_np = np.array(imagen_pil)
+    if img_np.shape[-1] == 4:
+        img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
+        
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+    
+    # 1. ENTROPÍA
+    hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).ravel()
+    hist_prob = hist / hist.sum()
+    non_zero_prob = hist_prob[hist_prob > 0]
+    entropia = -np.sum(non_zero_prob * np.log2(non_zero_prob))
+    entropia_norm = min(entropia / 8.0, 1.0)
+    
+    # 2. CORRELACIÓN
+    pixeles_izq = gray[:, :-1].flatten()
+    pixeles_der = gray[:, 1:].flatten()
+    correlacion = np.corrcoef(pixeles_izq, pixeles_der)[0, 1]
+    correlacion_norm = max(0.0, min(correlacion, 1.0))
+    
+    # 3. COLOR
+    std_r = np.std(img_np[:,:,0])
+    std_g = np.std(img_np[:,:,1])
+    std_b = np.std(img_np[:,:,2])
+    promedio_std = (std_r + std_g + std_b) / 3.0
+    color_norm = min(promedio_std / 75.0, 1.0)
+    
+    return {
+        "entropia_local": float(entropia_norm),
+        "correlacion_pixeles": float(correlacion_norm),
+        "distribucion_color": float(color_norm)
+    }
+
 @router.post("/analizar-completo")
 async def analisis_pericial_completo(peticion: PeticionImagen):
     imagen = _descargar_imagen(peticion.url)
+    
+    # NECESARIO PARA PASARLE EL FONDO A LAS CAPAS FORENSES
+    original_cv = cv2.cvtColor(np.array(imagen), cv2.COLOR_RGB2BGR)
     
     res_vit = analizar_con_vit(imagen)
     res_ela = realizar_analisis_ela(imagen)
@@ -108,56 +129,41 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     
     dif_max = res_ela["metricas"]["diferencia_maxima"]
     ruido_prom = res_ela["metricas"]["ruido_promedio"]
-
-    # Extraemos la huella física del lente de la cámara
     varianza_sensor = extraer_huella_sensor(imagen)
 
-    # ==========================================
-    # MOTOR DE CONSENSO MULTIMODAL
-    # ==========================================
-    # Bajamos el umbral a 60.0 porque las imágenes de web pierden ruido por compresión
     if veredicto == "REAL" and varianza_sensor > 60.0:
-        # Apoyo a favor: Reducimos la duda
         duda = 100.0 - confianza
         confianza = round(100.0 - (duda * 0.4), 2)
-        
-    elif veredicto == "REAL" and varianza_sensor < 40.0: # Bajamos el castigo a 40.0
-        # Penalización en contra
+    elif veredicto == "REAL" and varianza_sensor < 40.0: 
         confianza_calibrada = confianza - (confianza * 0.2)
-        
         if confianza_calibrada < 50.0:
             veredicto = "FAKE"
             confianza = round(100.0 - confianza_calibrada, 2)
         else:
             confianza = round(confianza_calibrada, 2)
 
-    # Textos
     texto_vit = generar_narrativa_vit(veredicto, confianza, matriz_atencion)
     texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor)
 
-    # ==========================================
-    # NORMALIZACIÓN PARA ANÁLISIS MULTIDIMENSIONAL (Gráfico de Araña)
-    # ==========================================
-    # Convertimos los rangos matemáticos del backend a escala 0.0 - 1.0
     val_patron_ruido = min(round(ruido_prom / 50.0, 2), 1.0)
     val_fourier = min(round(varianza_sensor / 100.0, 2), 1.0)
     val_compresion = min(round(dif_max / 255.0, 2), 1.0)
     
-    # Métricas adicionales leídas de ELA
-    val_entropia = res_ela["metricas"].get("entropia_local", 0.82)
-    val_correlacion = res_ela["metricas"].get("correlacion_pixeles", 0.45)
-    val_color = res_ela["metricas"].get("distribucion_color", 0.79)
+    # LLAMAMOS A LA MATEMÁTICA REAL Y REEMPLAZAMOS LOS DATOS MOCKEADOS
+    metricas_reales = calcular_metricas_heuristicas(imagen)
+    val_entropia = round(metricas_reales["entropia_local"], 2)
+    val_correlacion = round(metricas_reales["correlacion_pixeles"], 2)
+    val_color = round(metricas_reales["distribucion_color"], 2)
 
-    b64_base, b64_thresh, b64_rollout = generar_capas_forenses(res_vit["heatmap"])
+    # GENERAMOS LAS CAPAS USANDO LA IMAGEN ORIGINAL DE FONDO
+    b64_base, b64_thresh, b64_rollout = generar_capas_forenses(res_vit["heatmap"], original_cv)
 
     return {
         "veredicto_final": veredicto,
         "confianza_global": confianza,
-
         "heatmap_base64": b64_base,
         "heatmap_threshold": b64_thresh,
         "heatmap_rollout": b64_rollout,
-
         "desglose_pericial": {
             "analisis_ia_vit": {
                 "estado": texto_vit["estado"],
@@ -171,11 +177,8 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         "metadata": {
             "sistema": "VE ABSOLUTA Enterprise",
             "version": "2.3.1-SRM",
-            # INYECTAMOS LA VARIANZA PARA DEBUGEARLA
             "metrica_oculta_srm": round(varianza_sensor, 2),
-
-        #MÉTRICAS ASOCIADAS AL GRÁFICO RADAR
-        "metricas_heuristicas": [
+            "metricas_heuristicas": [
                 {"parametro": "Patrón de Ruido", "valor": val_patron_ruido, "fullMark": 1},
                 {"parametro": "Frecuencia Fourier", "valor": val_fourier, "fullMark": 1},
                 {"parametro": "Artefactos Compresión", "valor": val_compresion, "fullMark": 1},
@@ -183,7 +186,5 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
                 {"parametro": "Correlación Píxeles", "valor": val_correlacion, "fullMark": 1},
                 {"parametro": "Distribución Color", "valor": val_color, "fullMark": 1}
             ]
-            
         }
     }
-
