@@ -33,31 +33,52 @@ def generar_capas_forenses(b64_string: str):
         else:
             b64_data = b64_string
             
+        # Arreglar el padding de Base64
+        b64_data = b64_data + "=" * ((4 - len(b64_data) % 4) % 4)
+            
         # 2. Decodificar base64 a matriz OpenCV
         img_data = base64.b64decode(b64_data)
         np_arr = np.frombuffer(img_data, np.uint8)
         heatmap_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-        # Verificación de seguridad
         if heatmap_cv2 is None:
             print("[ERROR] OpenCV no pudo leer la imagen base64. Devolviendo capas nulas.")
             b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
             return b64_base, None, None
 
-        # 3. Capa: UMBRAL (Threshold) - Aísla las zonas de alerta máxima
+        # ====================================================
+        # 3. Capa: UMBRAL (Threshold) - Aísla zonas de alerta
+        # ====================================================
         gray = cv2.cvtColor(heatmap_cv2, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
-        heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
-        _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
+        
+        capa_color_jet = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
+        
+        # TRUCO DE FUSIÓN: Donde no hay alerta (thresh == 0), devolvemos la imagen original
+        umbral_final = capa_color_jet.copy()
+        umbral_final[thresh == 0] = heatmap_cv2[thresh == 0] 
+        
+        _, buffer_thresh = cv2.imencode('.jpg', umbral_final)
         b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
 
-        # 4. Capa: ROLLOUT (Propagación de bordes)
+        # ====================================================
+        # 4. Capa: ROLLOUT (Bordes y texturas anómalas)
+        # ====================================================
         blur = cv2.GaussianBlur(gray, (15, 15), 0)
         edges = cv2.Canny(blur, 50, 150)
-        heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
-        _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
+        
+        capa_color_viridis = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
+        
+        # TRUCO DE FUSIÓN: Oscurecemos un 60% la foto original de fondo para que los bordes 
+        # brillantes resalten y parezca un escáner táctico real.
+        fondo_oscurecido = cv2.addWeighted(heatmap_cv2, 0.4, np.zeros_like(heatmap_cv2), 0.6, 0)
+        rollout_final = capa_color_viridis.copy()
+        rollout_final[edges == 0] = fondo_oscurecido[edges == 0]
+
+        _, buffer_rollout = cv2.imencode('.jpg', rollout_final)
         b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
 
+        # ====================================================
         # 5. Asegurar el prefijo de la capa base
         b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
         
@@ -66,7 +87,6 @@ def generar_capas_forenses(b64_string: str):
 
     except Exception as e:
         print(f"[ERROR CRÍTICO] Fallo al generar las capas: {e}")
-        # Si todo explota, al menos devolvemos la capa base para que el front no se quede en blanco
         b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
         return b64_base, None, None
 
