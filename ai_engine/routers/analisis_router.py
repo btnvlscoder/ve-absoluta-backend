@@ -3,9 +3,11 @@ from pydantic import BaseModel
 import requests
 from io import BytesIO
 from PIL import Image
-
+import cv2
 from services.forensic_service import realizar_analisis_ela, generar_narrativa_ela, extraer_huella_sensor
 from services.vit_service import analizar_con_vit, generar_narrativa_vit
+import numpy as np
+import base64
 
 router = APIRouter()
 
@@ -110,3 +112,31 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
             
         }
     }
+
+def generar_capas_forenses(imagen_heatmap_cv2):
+    """
+    Toma el heatmap base (BGR) y genera las capas Threshold y Rollout (simulado)
+    """
+    # 1. Codificar Base
+    _, buffer_base = cv2.imencode('.jpg', imagen_heatmap_cv2)
+    b64_base = "data:image/jpeg;base64," + base64.b64encode(buffer_base).decode('utf-8')
+
+    # 2. Generar Umbral (Threshold)
+    # Convertimos a escala de grises y filtramos solo las altas activaciones
+    gray = cv2.cvtColor(imagen_heatmap_cv2, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+    # Volvemos a aplicar color para que se vea como heatmap pero recortado
+    heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
+    _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
+    b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
+
+    # 3. Generar Rollout (Aislamiento de contornos de atención)
+    # Suavizamos e identificamos los gradientes térmicos fuertes
+    blur = cv2.GaussianBlur(gray, (15, 15), 0)
+    edges = cv2.Canny(blur, 50, 150)
+    # Lo mapeamos con otro esquema de color (ej. VIRIDIS) para que sea visualmente distinto
+    heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
+    _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
+    b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
+
+    return b64_base, b64_thresh, b64_rollout
