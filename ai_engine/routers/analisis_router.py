@@ -22,6 +22,38 @@ def _descargar_imagen(url: str) -> Image.Image:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener imagen: {e}")
 
+def generar_capas_forenses(b64_string: str):
+    """ Toma el heatmap en base64 de ViT y genera matemáticamente las capas Threshold y Rollout """
+    # 1. Limpiar prefijo base64 si existe
+    if "," in b64_string:
+        b64_data = b64_string.split(",")[1]
+    else:
+        b64_data = b64_string
+        
+    # 2. Decodificar base64 a matriz OpenCV
+    img_data = base64.b64decode(b64_data)
+    np_arr = np.frombuffer(img_data, np.uint8)
+    heatmap_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    # 3. Capa: UMBRAL (Threshold) - Aísla las zonas de alerta máxima
+    gray = cv2.cvtColor(heatmap_cv2, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
+    heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
+    _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
+    b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
+
+    # 4. Capa: ROLLOUT (Propagación de bordes) - Identifica anomalías en contornos
+    blur = cv2.GaussianBlur(gray, (15, 15), 0)
+    edges = cv2.Canny(blur, 50, 150)
+    heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS) # Tonos verde/morado
+    _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
+    b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
+
+    # 5. Asegurar el prefijo de la capa base original
+    b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
+    
+    return b64_base, b64_thresh, b64_rollout
+
 @router.post("/analizar-completo")
 async def analisis_pericial_completo(peticion: PeticionImagen):
     imagen = _descargar_imagen(peticion.url)
@@ -80,10 +112,16 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     val_correlacion = res_ela["metricas"].get("correlacion_pixeles", 0.45)
     val_color = res_ela["metricas"].get("distribucion_color", 0.79)
 
+    b64_base, b64_thresh, b64_rollout = generar_capas_forenses(res_vit["heatmap"])
+
     return {
         "veredicto_final": veredicto,
         "confianza_global": confianza,
-        "heatmap_base64": res_vit["heatmap"],
+
+        "heatmap_base64": b64_base,
+        "heatmap_threshold": b64_thresh,
+        "heatmap_rollout": b64_rollout,
+
         "desglose_pericial": {
             "analisis_ia_vit": {
                 "estado": texto_vit["estado"],
@@ -113,30 +151,3 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         }
     }
 
-def generar_capas_forenses(imagen_heatmap_cv2):
-    """
-    Toma el heatmap base (BGR) y genera las capas Threshold y Rollout (simulado)
-    """
-    # 1. Codificar Base
-    _, buffer_base = cv2.imencode('.jpg', imagen_heatmap_cv2)
-    b64_base = "data:image/jpeg;base64," + base64.b64encode(buffer_base).decode('utf-8')
-
-    # 2. Generar Umbral (Threshold)
-    # Convertimos a escala de grises y filtramos solo las altas activaciones
-    gray = cv2.cvtColor(imagen_heatmap_cv2, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-    # Volvemos a aplicar color para que se vea como heatmap pero recortado
-    heatmap_thresh = cv2.applyColorMap(thresh, cv2.COLORMAP_JET)
-    _, buffer_thresh = cv2.imencode('.jpg', heatmap_thresh)
-    b64_thresh = "data:image/jpeg;base64," + base64.b64encode(buffer_thresh).decode('utf-8')
-
-    # 3. Generar Rollout (Aislamiento de contornos de atención)
-    # Suavizamos e identificamos los gradientes térmicos fuertes
-    blur = cv2.GaussianBlur(gray, (15, 15), 0)
-    edges = cv2.Canny(blur, 50, 150)
-    # Lo mapeamos con otro esquema de color (ej. VIRIDIS) para que sea visualmente distinto
-    heatmap_rollout = cv2.applyColorMap(edges, cv2.COLORMAP_VIRIDIS)
-    _, buffer_rollout = cv2.imencode('.jpg', heatmap_rollout)
-    b64_rollout = "data:image/jpeg;base64," + base64.b64encode(buffer_rollout).decode('utf-8')
-
-    return b64_base, b64_thresh, b64_rollout
