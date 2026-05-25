@@ -76,4 +76,11 @@ class AnalisisController(
         return ResponseEntity.ok(historial)
     }
 
+    @GetMapping("/estadisticas")
+    fun obtenerEstadisticas(): ResponseEntity<Any> {
+        log.info("Request recibido para obtener estadísticas globales")
+        val stats = analisisService.obtenerEstadisticasGlobales()
+        return ResponseEntity.ok(stats)
+    }
+
 }

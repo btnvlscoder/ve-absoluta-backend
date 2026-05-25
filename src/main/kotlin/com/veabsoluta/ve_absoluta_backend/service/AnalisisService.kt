@@ -123,11 +123,22 @@ class AnalisisService(
         }
     }
 
-    fun obtenerTodosLosCasos(): List<Any> { // Cambia 'Any' por el nombre de tu Entidad (ej: AnalisisEntity)
-        // findAll() es un método automático de Spring Data JPA que trae toda la tabla
+    fun obtenerTodosLosCasos(): List<Any> { 
         return analisisRepository.findAll().sortedByDescending { it.fecha } // Asumiendo que tienes un campo 'fecha' para ordenarlos del más nuevo al más viejo
     }
 }
+
+    fun obtenerEstadisticasGlobales(): Map<String, Long> {
+        val total = analisisRepository.count()
+        val reales = analisisRepository.countByPrediccion("REAL")
+        val fakes = analisisRepository.countByPrediccion("FAKE")
+        
+        return mapOf(
+            "total" to total,
+            "reales" to reales,
+            "fake" to fakes
+        )
+    }
 
 class AnalisisServiceException(
     message: String,
