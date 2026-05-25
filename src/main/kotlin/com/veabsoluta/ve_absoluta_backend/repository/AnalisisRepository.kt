@@ -5,6 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
 
 @Repository
-interface AnalisisRepository : JpaRepository<AnalisisEntity, Long> {
+interface AnalisisRepository : JpaRepository<Analisis, Long> {
     fun countByPrediccion(prediccion: String): Long 
 }

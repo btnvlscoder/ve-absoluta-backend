@@ -123,7 +123,7 @@ class AnalisisService(
         }
     }
 
-    fun obtenerTodosLosCasos(): List<Any> { 
+    fun obtenerTodosLosCasos(): List<Analisis> { 
         return analisisRepository.findAll().sortedByDescending { it.fecha } // Asumiendo que tienes un campo 'fecha' para ordenarlos del más nuevo al más viejo
     }
 }
