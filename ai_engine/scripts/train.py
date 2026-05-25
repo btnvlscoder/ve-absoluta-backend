@@ -14,6 +14,10 @@ MODELO_BASE = "umm-maybe/AI-image-detector"
 OUTPUT_DIR = "models/ve_absoluta_vit"
 
 class TraductorViT(Dataset):
+    """
+    Wrapper para adaptar un dataset de imágenes a la entrada esperada por el ViT.
+    Aplica el pre-procesamiento del modelo y convierte las etiquetas a tensores.
+    """
     def __init__(self, dataset_pytorch, procesador):
         self.dataset = dataset_pytorch
         self.procesador = procesador
@@ -33,6 +37,12 @@ class TraductorViT(Dataset):
         }
 
 def preparar_datos():
+    """
+    Carga y preprocesa el dataset:
+    - Carga imágenes desde la carpeta con estructura ImageFolder
+    - Divide en train/validation (80/20) con semilla 42 para reproducibilidad
+    - Aplica el processor del ViT
+    """
     print("1. Cargando el 'Picador' de imágenes del Transformer...")
     procesador = AutoImageProcessor.from_pretrained(MODELO_BASE)
 
@@ -51,6 +61,10 @@ def preparar_datos():
     return train_dataset, val_dataset, procesador, clases
 
 def cargar_modelo(clases):
+    """
+    Carga el modelo base y configura la cabeza de clasificación personalizada.
+    El modelo base es un detector de imágenes IA pre-entrenado.
+    """
     print(f"2. Descargando el cerebro base: {MODELO_BASE}...")
     id2label = {str(i): c for i, c in enumerate(clases)}
     label2id = {c: str(i) for i, c in enumerate(clases)}
@@ -65,6 +79,14 @@ def cargar_modelo(clases):
     return modelo
 
 def entrenar_vit():
+    """
+    Pipeline completo de fine-tuning del ViT:
+    - Carga y prepara datos
+    - Carga el modelo base
+    - Configura hiperparámetros (LR, batch size, epochs)
+    - Entrena y evalúa por época
+    - Guarda el mejor modelo según loss de validación
+    """
     train_dataset, val_dataset, procesador, clases = preparar_datos()
     modelo = cargar_modelo(clases)
 

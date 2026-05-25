@@ -20,6 +20,10 @@ except Exception as e:
     model = None
 
 def _convert_to_base64(grid_attn: np.ndarray, img_np: np.ndarray) -> str:
+    """
+    Convierte el grid de atención a un overlay visual en base64.
+    Fusiona el heatmap con la imagen original usando colormap JET.
+    """
     h, w = img_np.shape[:2]
     attn_resized = cv2.resize(grid_attn, (w, h))
     heatmap_color = cv2.applyColorMap(attn_resized, cv2.COLORMAP_JET)
@@ -34,6 +38,13 @@ def _convert_to_base64(grid_attn: np.ndarray, img_np: np.ndarray) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analizar_con_vit(imagen_pil: Image.Image) -> dict:
+    """
+    Analiza una imagen usando el modelo ViT (Vision Transformer) entrenado.
+    Genera tres visualizaciones de atención:
+    1. Heatmap raw: Atención cruda del modelo
+    2. Heatmap threshold: Zonas de alta atención (>70%)
+    3. Heatmap rollout: Tracing de atención por todas las capas
+    """
     if model is None:
         return {"error": "Modelo no cargado"}
 
@@ -119,6 +130,10 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         return {"error": f"Fallo en motor ViT: {str(e)}"}
 
 def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.ndarray) -> dict:
+    """
+    Traduce la predicción y el mapa de atención a una narrativa técnico-pericial.
+    Determina si la anomalía está en la zona central o perimetral de la imagen.
+    """
     if isinstance(heatmap_matrix, list):
         heatmap_matrix = np.array(heatmap_matrix)
 
