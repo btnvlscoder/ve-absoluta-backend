@@ -2,15 +2,17 @@ import torch
 import numpy as np
 import cv2
 import base64
+import os
 from io import BytesIO
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-MODEL_DIR = "btnvlscoder/ve-absoluta-vit-v2"
+MODEL_DIR = os.getenv("HF_MODEL_DIR", "btnvlscoder/ve-absoluta-vit-v2")
+HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN")
 
 try:
-    processor = AutoImageProcessor.from_pretrained(MODEL_DIR)
-    model = AutoModelForImageClassification.from_pretrained(MODEL_DIR)
+    processor = AutoImageProcessor.from_pretrained(MODEL_DIR, token=HUGGING_FACE_TOKEN)
+    model = AutoModelForImageClassification.from_pretrained(MODEL_DIR, token=HUGGING_FACE_TOKEN)
     model.eval()
     print(f"Motor ViT cargado exitosamente desde {MODEL_DIR}")
 except Exception as e:

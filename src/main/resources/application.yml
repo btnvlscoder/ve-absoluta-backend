@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: ve-absoluta-backend
+
+  datasource:
+    url: ${NEON_DB_URL:jdbc:postgresql://localhost:5432/ve_absoluta}
+    username: ${NEON_DB_USER:postgres}
+    password: ${NEON_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+ai:
+  service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+
+logging:
+  level:
+    root: INFO
+    com.veabsoluta: DEBUG
+    org.springframework.web: INFO
