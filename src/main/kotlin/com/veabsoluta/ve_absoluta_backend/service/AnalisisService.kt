@@ -1,10 +1,10 @@
 package com.veabsoluta.ve_absoluta_backend.service
+
 import com.veabsoluta.ve_absoluta_backend.DTO.*
 import com.veabsoluta.ve_absoluta_backend.model.Analisis
 import com.veabsoluta.ve_absoluta_backend.repository.AnalisisRepository
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.MediaType
@@ -13,13 +13,9 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.slf4j.MDC
 import reactor.core.publisher.Mono
-import java.io.IOException
 import java.time.Duration
 import java.util.UUID
 
-// ==========================================
-// EL SERVICIO ORQUESTADOR
-// ==========================================
 @Service
 class AnalisisService(
     private val analisisRepository: AnalisisRepository,
@@ -32,19 +28,19 @@ class AnalisisService(
         webClientBuilder
             .baseUrl(aiServiceUrl)
             .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .codecs { configurer -> 
-                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) 
+            .codecs { configurer ->
+                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)
             }
             .build()
     }
-    
+
     private val log = LoggerFactory.getLogger(AnalisisService::class.java)
-    
+
     private val circuitBreaker: CircuitBreaker by lazy {
         CircuitBreaker.of("iaService", CircuitBreakerConfig.custom()
             .failureRateThreshold(50.0f)
             .slowCallRateThreshold(50.0f)
-            .slowCallDurationThreshold(Duration.ofSeconds(45)) 
+            .slowCallDurationThreshold(Duration.ofSeconds(45))
             .waitDurationInOpenState(Duration.ofSeconds(60))
             .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
             .slidingWindowSize(10)
@@ -54,27 +50,18 @@ class AnalisisService(
             .build())
     }
 
-    /**
-     * Orquestador principal: delega la inferencia al microservicio de Python
-     */
     fun ejecutarDeteccion(rutaImagen: String, nombreArchivo: String): AnalisisForenseResponse {
-        val request = AnalisisRequest(
-            url = rutaImagen
-        )
-
-        // 1. Llamamos a la IA (Puede tardar por el cálculo de ELA y ViT)
+        val request = AnalisisRequest(url = rutaImagen)
         val pythonResult = realizarPeticionIAInternal(request).block()
 
-        // 2. Persistimos los datos básicos en PostgreSQL para el historial
         val nuevoRegistro = Analisis(
             nombreArchivo = nombreArchivo,
             rutaArchivo = rutaImagen,
             prediccion = pythonResult?.veredicto_final ?: "ERROR",
-            confianza = (pythonResult?.confianza_global ?: 0.0) / 100.0 // BD guarda 0.0 a 1.0
+            confianza = (pythonResult?.confianza_global ?: 0.0) / 100.0
         )
         val analisisGuardado = analisisRepository.save(nuevoRegistro)
 
-        // 3. Empaquetamos todo (Datos de BD + Evidencia Forense) para React
         return AnalisisForenseResponse(
             id = analisisGuardado.id,
             nombreArchivo = analisisGuardado.nombreArchivo,
@@ -84,18 +71,18 @@ class AnalisisService(
             heatmap_threshold = pythonResult?.heatmap_threshold,
             heatmap_rollout = pythonResult?.heatmap_rollout,
             desglose_pericial = pythonResult?.desglose_pericial,
-            metadata = pythonResult?.metadata // 🚀 AQUÍ PASA LA MÉTRICA SRM INTACTA
+            metadata = pythonResult?.metadata
         )
     }
-    
+
     internal fun realizarPeticionIAInternal(request: AnalisisRequest): Mono<PythonResponse> {
         val traceId = MDC.get("traceId") ?: UUID.randomUUID().toString()
         MDC.put("traceId", traceId)
-        
+
         log.info("IA request iniciada - traceId: {}, url: {}", traceId, request.url)
 
         return webClient.post()
-            .uri("") 
+            .uri("")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(request)
             .retrieve()
@@ -112,7 +99,7 @@ class AnalisisService(
                 }
             }
             .bodyToMono(PythonResponse::class.java)
-            .timeout(Duration.ofSeconds(90)) 
+            .timeout(Duration.ofSeconds(90))
             .retryWhen(reactor.util.retry.Retry.backoff(1, Duration.ofMillis(1000))
                 .filter { throwable -> throwable is WebClientResponseException && throwable.statusCode.is5xxServerError }
             )
@@ -122,8 +109,8 @@ class AnalisisService(
                 val prediccionNormalizada = normalizarPrediccion(prediccion)
                 pythonResult.copy(veredicto_final = prediccionNormalizada)
             }
-            .onErrorMap { e -> 
-                AnalisisServiceException("Fallo en la comunicación con el motor forense: ${e.message}", e, ErrorCode.IA_SERVICE_UNAVAILABLE) 
+            .onErrorMap { e ->
+                AnalisisServiceException("Fallo en la comunicación con el motor forense: ${e.message}", e, ErrorCode.IA_SERVICE_UNAVAILABLE)
             }
     }
 

@@ -19,7 +19,6 @@ class CloudinaryStorageService(
 
     private val log = LoggerFactory.getLogger(CloudinaryStorageService::class.java)
 
-    // Instanciamos Cloudinary aquí mismo con tus variables recuperadas
     private val cloudinary: Cloudinary by lazy {
         Cloudinary(ObjectUtils.asMap(
             "cloud_name", cloudName,
@@ -31,7 +30,6 @@ class CloudinaryStorageService(
     override fun upload(file: MultipartFile): String {
         var tempFile: File? = null
         try {
-            // 1. Convertir a File temporal físico (El escudo anti-ChannelInputStream)
             tempFile = convertMultiPartToFile(file)
 
             val uploadParams = ObjectUtils.asMap(
@@ -45,14 +43,13 @@ class CloudinaryStorageService(
 
             val secureUrl = uploadResult["secure_url"] as String
             log.info("Subida a Cloudinary exitosa. URL: {}", secureUrl)
-            
+
             return secureUrl
-            
+
         } catch (e: Exception) {
             log.error("Error crítico al subir a Cloudinary: ${e.message}", e)
             throw StorageException("Error al subir imagen a Cloudinary: ${e.message}", e)
         } finally {
-            // Limpieza del archivo temporal
             tempFile?.let {
                 if (it.exists()) {
                     it.delete()

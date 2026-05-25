@@ -3,20 +3,16 @@ import torch
 from torchvision import datasets
 from torch.utils.data import Dataset
 from transformers import (
-    AutoImageProcessor, 
-    AutoModelForImageClassification, 
-    TrainingArguments, 
+    AutoImageProcessor,
+    AutoModelForImageClassification,
+    TrainingArguments,
     Trainer
 )
 
-# --- CONFIGURACIÓN MLOps ---
-PATH_DATASET = "datasets/test"                 
-MODELO_BASE = "umm-maybe/AI-image-detector"    
-OUTPUT_DIR = "models/ve_absoluta_vit"          
+PATH_DATASET = "datasets/test"
+MODELO_BASE = "umm-maybe/AI-image-detector"
+OUTPUT_DIR = "models/ve_absoluta_vit"
 
-# =====================================================================
-# PUENTE: Esta clase traduce el formato de PyTorch al de Hugging Face
-# =====================================================================
 class TraductorViT(Dataset):
     def __init__(self, dataset_pytorch, procesador):
         self.dataset = dataset_pytorch
@@ -26,51 +22,39 @@ class TraductorViT(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        # 1. Saca la foto de la carpeta usando PyTorch
         img, label = self.dataset[idx]
         img = img.convert("RGB")
-        
-        # 2. El "Picador" de Hugging Face la procesa para el Transformer
+
         inputs = self.procesador(images=img, return_tensors="pt")
-        
-        # 3. Devuelve el diccionario exacto que necesita el Trainer
+
         return {
-            "pixel_values": inputs["pixel_values"].squeeze(0), # Quitamos la dimensión extra
+            "pixel_values": inputs["pixel_values"].squeeze(0),
             "labels": torch.tensor(label)
         }
 
-# =====================================================================
-# PIPELINE DE DATOS
-# =====================================================================
 def preparar_datos():
     print("1. Cargando el 'Picador' de imágenes del Transformer...")
     procesador = AutoImageProcessor.from_pretrained(MODELO_BASE)
-    
-    # Usamos el viejo y confiable ImageFolder de PyTorch (¡A Windows no le molesta!)
+
     dataset_base = datasets.ImageFolder(PATH_DATASET)
     clases = dataset_base.classes
     print(f"   -> Clases detectadas: {clases}")
-    
-    # Dividimos 80% Entrenamiento / 20% Validación
+
     train_size = int(0.8 * len(dataset_base))
     val_size = len(dataset_base) - train_size
     torch.manual_seed(42)
     train_base, val_base = torch.utils.data.random_split(dataset_base, [train_size, val_size])
-    
-    # Pasamos las fotos por nuestro puente traductor
+
     train_dataset = TraductorViT(train_base, procesador)
     val_dataset = TraductorViT(val_base, procesador)
-    
+
     return train_dataset, val_dataset, procesador, clases
 
-# =====================================================================
-# CARGA DEL MODELO (El Cerebro)
-# =====================================================================
 def cargar_modelo(clases):
     print(f"2. Descargando el cerebro base: {MODELO_BASE}...")
     id2label = {str(i): c for i, c in enumerate(clases)}
     label2id = {c: str(i) for i, c in enumerate(clases)}
-    
+
     modelo = AutoModelForImageClassification.from_pretrained(
         MODELO_BASE,
         num_labels=len(clases),
@@ -80,13 +64,10 @@ def cargar_modelo(clases):
     )
     return modelo
 
-# =====================================================================
-# PILOTO AUTOMÁTICO
-# =====================================================================
 def entrenar_vit():
     train_dataset, val_dataset, procesador, clases = preparar_datos()
     modelo = cargar_modelo(clases)
-    
+
     print("3. Configurando el Piloto Automático (Trainer)...")
     argumentos_entrenamiento = TrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -103,7 +84,7 @@ def entrenar_vit():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss"
     )
-    
+
     entrenador = Trainer(
         model=modelo,
         args=argumentos_entrenamiento,
@@ -111,10 +92,10 @@ def entrenar_vit():
         eval_dataset=val_dataset,
         processing_class=procesador,
     )
-    
+
     print("4. ¡Iniciando Aprendizaje Continuo (Fine-Tuning)!")
     entrenador.train()
-    
+
     print(f"5. Guardando el modelo definitivo VE ABSOLUTA v2 en: {OUTPUT_DIR}")
     entrenador.save_model(OUTPUT_DIR)
 
