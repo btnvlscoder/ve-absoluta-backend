@@ -122,6 +122,11 @@ class AnalisisService(
             else -> throw AnalisisServiceException("Predicción IA no reconocida: '$prediccion'", null, ErrorCode.IA_SERVICE_ERROR)
         }
     }
+
+    fun obtenerTodosLosCasos(): List<Any> { // Cambia 'Any' por el nombre de tu Entidad (ej: AnalisisEntity)
+        // findAll() es un método automático de Spring Data JPA que trae toda la tabla
+        return analisisRepository.findAll().sortedByDescending { it.fecha } // Asumiendo que tienes un campo 'fecha' para ordenarlos del más nuevo al más viejo
+    }
 }
 
 class AnalisisServiceException(

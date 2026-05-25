@@ -67,4 +67,13 @@ class AnalisisController(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Tipo de archivo no válido. Solo se aceptan: JPEG, PNG, WebP")
         }
     }
+
+    @GetMapping("/historial")
+    fun obtenerHistorial(): ResponseEntity<Any> {
+        log.info("Request recibido para obtener historial de casos")
+        // Llamamos al servicio para que traiga todo de la base de datos
+        val historial = analisisService.obtenerTodosLosCasos() 
+        return ResponseEntity.ok(historial)
+    }
+
 }
