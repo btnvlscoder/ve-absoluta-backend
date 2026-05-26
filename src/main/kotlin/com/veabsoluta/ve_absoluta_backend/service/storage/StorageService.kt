@@ -18,6 +18,8 @@ interface StorageService {
      * @throws StorageException si falla la subida
      */
     fun upload(file: MultipartFile): String
+
+    fun delete(fileUrl: String)
 }
 
 /**

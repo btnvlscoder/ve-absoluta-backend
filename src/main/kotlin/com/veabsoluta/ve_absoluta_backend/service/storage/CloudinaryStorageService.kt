@@ -57,6 +57,25 @@ class CloudinaryStorageService(
             }
         }
     }
+    
+    override fun delete(fileUrl: String) {
+        try {
+            // Ejemplo URL: https://res.cloudinary.com/.../ve-absoluta-uploads/img_uuid.jpg
+            // Extraemos "ve-absoluta-uploads/img_uuid" para decírselo a Cloudinary
+            val urlParts = fileUrl.split("/")
+            val folder = urlParts[urlParts.size - 2]
+            val fileName = urlParts.last().substringBeforeLast(".")
+            val publicId = "$folder/$fileName"
+
+            log.debug("Intentando eliminar imagen huérfana (Rollback): {}", publicId)
+            
+            val result = cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap())
+            
+            log.info("Rollback en Cloudinary ejecutado. Resultado: {}", result["result"])
+        } catch (e: Exception) {
+            log.error("Fallo al intentar hacer rollback de la imagen en Cloudinary: ${e.message}", e)
+        }
+    }
 
     private fun convertMultiPartToFile(file: MultipartFile): File {
         val convFile = File(System.getProperty("java.io.tmpdir") + "/" + (file.originalFilename ?: "temp_img"))
