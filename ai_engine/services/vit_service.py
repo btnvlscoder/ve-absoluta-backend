@@ -12,7 +12,12 @@ HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN")
 
 try:
     processor = AutoImageProcessor.from_pretrained(MODEL_DIR, token=HUGGING_FACE_TOKEN)
-    model = AutoModelForImageClassification.from_pretrained(MODEL_DIR, token=HUGGING_FACE_TOKEN)
+    model = AutoModelForImageClassification.from_pretrained(
+        MODEL_DIR, 
+        token=HUGGING_FACE_TOKEN,
+        output_attentions=True,
+        return_dict=True
+    )
     model.eval()
     print(f"Motor ViT cargado exitosamente desde {MODEL_DIR}")
 except Exception as e:
@@ -20,10 +25,6 @@ except Exception as e:
     model = None
 
 def _convert_to_base64(grid_attn: np.ndarray, img_np: np.ndarray) -> str:
-    """
-    Convierte el grid de atención a un overlay visual en base64.
-    Fusiona el heatmap con la imagen original usando colormap JET.
-    """
     h, w = img_np.shape[:2]
     attn_resized = cv2.resize(grid_attn, (w, h))
     heatmap_color = cv2.applyColorMap(attn_resized, cv2.COLORMAP_JET)
@@ -38,13 +39,6 @@ def _convert_to_base64(grid_attn: np.ndarray, img_np: np.ndarray) -> str:
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analizar_con_vit(imagen_pil: Image.Image) -> dict:
-    """
-    Analiza una imagen usando el modelo ViT (Vision Transformer) entrenado.
-    Genera tres visualizaciones de atención:
-    1. Heatmap raw: Atención cruda del modelo
-    2. Heatmap threshold: Zonas de alta atención (>70%)
-    3. Heatmap rollout: Tracing de atención por todas las capas
-    """
     if model is None:
         return {"error": "Modelo no cargado"}
 
@@ -52,7 +46,7 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         inputs = processor(images=imagen_pil, return_tensors="pt")
 
         with torch.no_grad():
-            outputs = model(**inputs, output_attentions=True)
+            outputs = model(**inputs, output_attentions=True, return_dict=True)
 
         logits = outputs.logits
         probs = torch.nn.functional.softmax(logits, dim=-1)
@@ -60,33 +54,48 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         label = model.config.id2label[pred_idx]
         confianza = probs[0][pred_idx].item()
 
-        attentions = outputs.attentions
         img_np = np.array(imagen_pil)
+        attentions = getattr(outputs, "attentions", None)
 
-        cls_attn_raw = attentions[-1][0, :, 0, 1:].mean(dim=0)
-        num_patches = cls_attn_raw.shape[0]
-
-        if int(np.sqrt(num_patches))**2 != num_patches:
-            if int(np.sqrt(num_patches - 1))**2 == (num_patches - 1):
-                cls_attn_raw = cls_attn_raw[1:]
-                num_patches -= 1
-
-        lado_a = int(np.sqrt(num_patches))
-        while num_patches % lado_a != 0:
-            lado_a -= 1
-        lado_b = num_patches // lado_a
-        h_grid, w_grid = min(lado_a, lado_b), max(lado_a, lado_b)
-
-        grid_attn_raw = cls_attn_raw.reshape(h_grid, w_grid).numpy()
-        grid_attn_raw = (grid_attn_raw - grid_attn_raw.min()) / (grid_attn_raw.max() - grid_attn_raw.min())
-        grid_attn_raw = np.uint8(255 * grid_attn_raw)
-
-        umbral = np.percentile(grid_attn_raw, 70)
-        grid_attn_thresh = np.where(grid_attn_raw > umbral, grid_attn_raw, 0)
-        grid_attn_thresh = (grid_attn_thresh - grid_attn_thresh.min()) / (grid_attn_thresh.max() - grid_attn_thresh.min() + 1e-8)
-        grid_attn_thresh = np.uint8(255 * grid_attn_thresh)
-
+        # BLOQUE DEFENSIVO XAI
         try:
+            if not attentions or len(attentions) == 0:
+                raise ValueError("Modelo no retornó atenciones")
+
+            cls_attn_raw = attentions[-1][0, :, 0, 1:].mean(dim=0)
+            num_patches = cls_attn_raw.shape[0]
+
+            if int(np.sqrt(num_patches))**2 != num_patches:
+                if int(np.sqrt(num_patches - 1))**2 == (num_patches - 1):
+                    cls_attn_raw = cls_attn_raw[1:]
+                    num_patches -= 1
+
+            lado_a = int(np.sqrt(num_patches))
+            while num_patches % lado_a != 0:
+                lado_a -= 1
+            lado_b = num_patches // lado_a
+            h_grid, w_grid = min(lado_a, lado_b), max(lado_a, lado_b)
+
+            grid_attn_raw = cls_attn_raw.reshape(h_grid, w_grid).numpy()
+            grid_attn_raw = (grid_attn_raw - grid_attn_raw.min()) / (grid_attn_raw.max() - grid_attn_raw.min() + 1e-8)
+            grid_attn_raw = np.uint8(255 * grid_attn_raw)
+
+            umbral = np.percentile(grid_attn_raw, 70)
+            grid_attn_thresh = np.where(grid_attn_raw > umbral, grid_attn_raw, 0)
+            grid_attn_thresh = (grid_attn_thresh - grid_attn_thresh.min()) / (grid_attn_thresh.max() - grid_attn_thresh.min() + 1e-8)
+            grid_attn_thresh = np.uint8(255 * grid_attn_thresh)
+
+        except Exception as e:
+            print(f"[XAI WARNING] Fallo al extraer Heatmap: {e}")
+            grid_attn_raw = np.zeros((14, 14), dtype=np.uint8)
+            grid_attn_thresh = np.zeros((14, 14), dtype=np.uint8)
+            h_grid, w_grid = 14, 14
+
+        # BLOQUE DEFENSIVO ROLLOUT
+        try:
+            if not attentions or len(attentions) == 0:
+                raise ValueError("Sin atenciones para Rollout")
+
             result = torch.eye(attentions[0].size(-1)).to(attentions[0].device)
             for attention in attentions:
                 attention_heads_fused = attention.mean(axis=1)
@@ -100,7 +109,6 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
                 result = torch.matmul(a, result)
 
             mask = result[0, 0, 1:]
-
             if mask.shape[0] != (h_grid * w_grid):
                 mask = mask[1:]
 
@@ -109,7 +117,7 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
             grid_attn_rollout = np.uint8(255 * grid_attn_rollout)
 
         except Exception as e:
-            print(f"Rollout omitido (incompatibilidad de tensores). Usando Fallback. Detalle: {e}")
+            print(f"[XAI WARNING] Rollout omitido: {e}")
             grid_attn_rollout = grid_attn_thresh.copy()
 
         heatmap_raw_b64 = _convert_to_base64(grid_attn_raw, img_np)
@@ -130,15 +138,11 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         return {"error": f"Fallo en motor ViT: {str(e)}"}
 
 def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.ndarray) -> dict:
-    """
-    Traduce la predicción y el mapa de atención a una narrativa técnico-pericial.
-    Determina si la anomalía está en la zona central o perimetral de la imagen.
-    """
     if isinstance(heatmap_matrix, list):
         heatmap_matrix = np.array(heatmap_matrix)
 
-    if heatmap_matrix is None:
-        return {"estado": "INFO", "detalle": "Análisis completado sin mapa de atención."}
+    if heatmap_matrix is None or heatmap_matrix.sum() == 0:
+        return {"estado": "INFO", "detalle": f"Análisis estructural completado sin telemetría visual. (Certeza: {confianza:.1f}%)"}
 
     h, w = heatmap_matrix.shape
     y_max, x_max = np.unravel_index(np.argmax(heatmap_matrix), heatmap_matrix.shape)
