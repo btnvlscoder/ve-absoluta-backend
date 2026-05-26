@@ -103,7 +103,8 @@ class RateLimitFilter : OncePerRequestFilter() {
         return requestUri.startsWith("/actuator/") ||
                requestUri.startsWith("/swagger-ui/") ||
                requestUri.startsWith("/v3/api-docs") ||
-               requestUri == "/swagger-ui.html"
+               requestUri == "/swagger-ui.html" ||
+               requestUri.contains("/estadisticas")
     }
 
     private fun getClientIp(request: HttpServletRequest): String {
