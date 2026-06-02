@@ -120,6 +120,14 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
             print(f"[XAI WARNING] Rollout omitido: {e}")
             grid_attn_rollout = grid_attn_thresh.copy()
 
+        h_grid, w_grid = grid_attn_raw.shape
+        y_max, x_max = np.unravel_index(np.argmax(grid_attn_raw), grid_attn_raw.shape)
+        
+        if y_max < h_grid * 0.3 or y_max > h_grid * 0.7 or x_max < w_grid * 0.3 or x_max > w_grid * 0.7:
+            sector_calculado = "perimetral"
+        else:
+            sector_calculado = "central"
+
         heatmap_raw_b64 = _convert_to_base64(grid_attn_raw, img_np)
         heatmap_thresh_b64 = _convert_to_base64(grid_attn_thresh, img_np)
         heatmap_rollout_b64 = _convert_to_base64(grid_attn_rollout, img_np)
@@ -127,6 +135,7 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         return {
             "prediccion": label.upper(),
             "confianza": round(confianza * 100, 2),
+            "sector": sector_calculado,
             "heatmap": f"data:image/jpeg;base64,{heatmap_raw_b64}",
             "heatmap_threshold": f"data:image/jpeg;base64,{heatmap_thresh_b64}",
             "heatmap_rollout": f"data:image/jpeg;base64,{heatmap_rollout_b64}",
@@ -137,28 +146,3 @@ def analizar_con_vit(imagen_pil: Image.Image) -> dict:
         traceback.print_exc()
         return {"error": f"Fallo en motor ViT: {str(e)}"}
 
-def generar_narrativa_vit(prediccion: str, confianza: float, heatmap_matrix: np.ndarray) -> dict:
-    if isinstance(heatmap_matrix, list):
-        heatmap_matrix = np.array(heatmap_matrix)
-
-    if heatmap_matrix is None or heatmap_matrix.sum() == 0:
-        return {"estado": "INFO", "detalle": f"Análisis estructural completado sin telemetría visual. (Certeza: {confianza:.1f}%)"}
-
-    h, w = heatmap_matrix.shape
-    y_max, x_max = np.unravel_index(np.argmax(heatmap_matrix), heatmap_matrix.shape)
-
-    if y_max < h * 0.3 or y_max > h * 0.7 or x_max < w * 0.3 or x_max > w * 0.7:
-        sector = "perimetral"
-    else:
-        sector = "central"
-
-    if prediccion == "FAKE":
-        return {
-            "estado": "CRÍTICO",
-            "detalle": f"Anomalía visual en zona {sector}: El escaneo detectó elementos artificiales en la región {sector}. La textura y la iluminación no corresponden a la física de una cámara real, sugiriendo fuertemente generación artificial (Certeza: {confianza:.1f}%)."
-        }
-    else:
-        return {
-            "estado": "SEGURO",
-            "detalle": "Estructura óptica validada: La distribución de píxeles es natural. Las luces, sombras y texturas mantienen la coherencia física esperada de una fotografía real, sin indicios de manipulación por IA."
-        }
