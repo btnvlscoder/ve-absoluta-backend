@@ -4,10 +4,11 @@ import requests
 from io import BytesIO
 from PIL import Image
 import cv2
-from services.forensic_service import realizar_analisis_ela, generar_narrativa_ela, extraer_huella_sensor
-from services.vit_service import analizar_con_vit, generar_narrativa_vit
 import numpy as np
 import base64
+
+from services.forensic_service import realizar_analisis_ela, extraer_huella_sensor
+from services.vit_service import analizar_con_vit, detectar_sector_anomalia
 
 router = APIRouter()
 
@@ -111,8 +112,6 @@ def calcular_metricas_heuristicas(imagen_pil):
 @router.post("/analizar-completo")
 async def analisis_pericial_completo(peticion: PeticionImagen):
     imagen = _descargar_imagen(peticion.url)
-    
-    # NECESARIO PARA PASARLE EL FONDO A LAS CAPAS FORENSES
     original_cv = cv2.cvtColor(np.array(imagen), cv2.COLOR_RGB2BGR)
     
     res_vit = analizar_con_vit(imagen)
@@ -121,16 +120,18 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
     if "error" in res_vit:
         raise HTTPException(status_code=500, detail=res_vit["error"])
     if "error" in res_ela:
-        raise HTTPException(status_code=500, detail=res_ela["detalle"])
+        raise HTTPException(status_code=500, detail=res_ela["error"])
 
     veredicto = res_vit["prediccion"]
     confianza = res_vit["confianza"]
     matriz_atencion = res_vit["grid_attn"]
+    sector_ia = res_vit.get("sector", "indeterminado") 
     
-    dif_max = res_ela["metricas"]["diferencia_maxima"]
-    ruido_prom = res_ela["metricas"]["ruido_promedio"]
+    dif_max = res_ela["diferencia_maxima"]
+    ruido_prom = res_ela["ruido_promedio"]
     varianza_sensor = extraer_huella_sensor(imagen)
 
+    # --- CALIBRACIÓN DE CONFIANZA ---
     if veredicto == "REAL" and varianza_sensor > 60.0:
         duda = 100.0 - confianza
         confianza = round(100.0 - (duda * 0.4), 2)
@@ -142,20 +143,16 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         else:
             confianza = round(confianza_calibrada, 2)
 
-    texto_vit = generar_narrativa_vit(veredicto, confianza, matriz_atencion)
-    texto_ela = generar_narrativa_ela(dif_max, ruido_prom, varianza_sensor)
-
+    # Métricas para radar chart
     val_patron_ruido = min(round(ruido_prom / 50.0, 2), 1.0)
     val_fourier = min(round(varianza_sensor / 100.0, 2), 1.0)
     val_compresion = min(round(dif_max / 255.0, 2), 1.0)
-    
     
     metricas_reales = calcular_metricas_heuristicas(imagen)
     val_entropia = round(metricas_reales["entropia_local"], 2)
     val_correlacion = round(metricas_reales["correlacion_pixeles"], 2)
     val_color = round(metricas_reales["distribucion_color"], 2)
 
-    # GENERAMOS LAS CAPAS USANDO LA IMAGEN ORIGINAL DE FONDO
     b64_base, b64_thresh, b64_rollout = generar_capas_forenses(res_vit["heatmap"], original_cv)
 
     return {
@@ -164,20 +161,18 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         "heatmap_base64": b64_base,
         "heatmap_threshold": b64_thresh,
         "heatmap_rollout": b64_rollout,
-        "desglose_pericial": {
-            "analisis_ia_vit": {
-                "estado": texto_vit["estado"],
-                "detalle": texto_vit["detalle"]
-            },
-            "analisis_ela": {
-                "estado": texto_ela["estado"],
-                "detalle": texto_ela["detalle"]
-            }
+        # BLOQUE CRUDO QUE LEE REACT AHORA
+        "datos_crudos_frontend": {
+            "vit_prediccion": veredicto,
+            "vit_confianza": confianza,
+            "vit_sector": sector_ia,
+            "ela_max_diff": dif_max,
+            "ela_ruido_prom": ruido_prom,
+            "sensor_variance": varianza_sensor
         },
         "metadata": {
             "sistema": "VE ABSOLUTA Enterprise",
             "version": "2.3.1-SRM",
-            "metrica_oculta_srm": round(varianza_sensor, 2),
             "metricas_heuristicas": [
                 {"parametro": "Patrón de Ruido", "valor": val_patron_ruido, "fullMark": 1},
                 {"parametro": "Frecuencia Fourier", "valor": val_fourier, "fullMark": 1},
