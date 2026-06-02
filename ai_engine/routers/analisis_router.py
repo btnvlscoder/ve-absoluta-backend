@@ -8,8 +8,7 @@ import numpy as np
 import base64
 
 from services.forensic_service import realizar_analisis_ela, extraer_huella_sensor
-from services.vit_service import analizar_con_vit, detectar_sector_anomalia
-
+from services.vit_service import analizar_con_vit
 router = APIRouter()
 
 class PeticionImagen(BaseModel):
