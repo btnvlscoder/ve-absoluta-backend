@@ -13,7 +13,8 @@ data class PythonResponse(
     val heatmap_threshold: String?,
     val heatmap_rollout: String?,
     val desglose_pericial: DesglosePericialDTO?,
-    val metadata: Map<String, Any>? = null
+    val metadata: Map<String, Any>? = null,
+    val datos_crudos_frontend: Map<String, Any>? = null
 ) {
     fun validate(): PythonResponse {
         require(!veredicto_final.isNullOrBlank()) { "Respuesta IA inválida: veredicto vacío" }
@@ -31,7 +32,8 @@ data class AnalisisForenseResponse(
     val heatmap_threshold: String?,
     val heatmap_rollout: String?,
     val desglose_pericial: DesglosePericialDTO?,
-    val metadata: Map<String, Any>? = null
+    val metadata: Map<String, Any>? = null,
+    val datos_crudos_frontend: Map<String, Any>? = null
 )
 
 data class DesglosePericialDTO(

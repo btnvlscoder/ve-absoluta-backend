@@ -71,7 +71,8 @@ class AnalisisService(
             heatmap_threshold = pythonResult?.heatmap_threshold,
             heatmap_rollout = pythonResult?.heatmap_rollout,
             desglose_pericial = pythonResult?.desglose_pericial,
-            metadata = pythonResult?.metadata
+            metadata = pythonResult?.metadata,
+            datos_crudos_frontend = pythonResult?.datos_crudos_frontend
         )
     }
 
