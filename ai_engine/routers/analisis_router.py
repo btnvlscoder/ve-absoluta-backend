@@ -159,21 +159,22 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
 
 # --- MÉTRICAS PARA RADAR CHART (Transformadas a Anomalías 0-1) ---
     
-    # 1. ELA Max Diff (Normal < 40, Anomalía > 80)
-    val_compresion = min(max((dif_max - 40) / 60.0, 0.0), 1.0)
+# 1. Patrón de Ruido (Ruido ELA): El ruido promedio natural es ~2.0. 
+    # Saturamos al llegar a 15.0 (nivel de manipulación claro).
+    val_patron_ruido = min(max((ruido_prom - 1.0) / 14.0, 0.0), 1.0)
     
-    # 2. ELA Mean (Normal < 5, Anomalía > 15)
-    val_patron_ruido = min(max((ruido_prom - 3) / 12.0, 0.0), 1.0)
-    
-    # 3. Fourier/Laplaciano (Normal > 60 y < 1500)
-    # Detecta si la imagen es antinaturalmente lisa (< 60) o tiene ruido inyectado brutal (> 1500)
-    if varianza_sensor < 60:
-        val_fourier = 1.0 - (varianza_sensor / 60.0) # Muy liso = anomalía
-    elif varianza_sensor > 1500:
-        val_fourier = min((varianza_sensor - 1500) / 2000.0, 1.0) # Ruido inyectado = anomalía
+    # 2. Frecuencia Fourier (Varianza Laplaciana): 
+    # Una cámara real tiene varianza > 60. Si baja de 40, detectamos anomalía.
+    # Escala: 0 (Sano) a 1 (Totalmente plano/artificial)
+    if varianza_sensor > 60:
+        val_fourier = 0.0 # Valor sano
     else:
-        val_fourier = 0.0 # Rango de cámara sana
+        val_fourier = min(max((60 - varianza_sensor) / 60.0, 0.0), 1.0)
     
+    # 3. Artefactos Compresión (Delta Max ELA): 
+    # Un delta de 30 es aceptable. A partir de 80 es manipulación.
+    val_compresion = min(max((dif_max - 30) / 50.0, 0.0), 1.0)
+        
     # 4, 5 y 6. Métricas Heurísticas (Entropía, Correlación, Color)
     metricas_reales = calcular_metricas_heuristicas(imagen)
     val_entropia = round(metricas_reales["anomalia_entropia"], 2)
