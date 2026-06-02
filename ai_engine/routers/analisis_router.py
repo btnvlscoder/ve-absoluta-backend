@@ -22,7 +22,6 @@ def _descargar_imagen(url: str) -> Image.Image:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener imagen: {e}")
 
-# CORRECCIÓN APLICADA: Ahora recibe original_img_cv para la fusión visual
 def generar_capas_forenses(b64_string: str, original_img_cv: np.ndarray):
     print("[DEBUG] Iniciando generación de capas forenses...")
     try:
