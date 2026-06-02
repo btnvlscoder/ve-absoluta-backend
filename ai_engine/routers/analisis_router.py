@@ -74,7 +74,7 @@ def generar_capas_forenses(b64_string: str, original_img_cv: np.ndarray):
         b64_base = b64_string if "," in b64_string else "data:image/jpeg;base64," + b64_string
         return b64_base, None, None
 
-# MATEMÁTICA DE TESIS
+# MATEMÁTICA FORENSE: CÁLCULO DE ANOMALÍAS
 def calcular_metricas_heuristicas(imagen_pil):
     img_np = np.array(imagen_pil)
     if img_np.shape[-1] == 4:
@@ -82,30 +82,46 @@ def calcular_metricas_heuristicas(imagen_pil):
         
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     
-    # 1. ENTROPÍA
+    # 1. ENTROPÍA (Normal en fotografía ~ 7.2 - 7.6)
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).ravel()
-    hist_prob = hist / hist.sum()
+    hist_prob = hist / (hist.sum() + 1e-7)
     non_zero_prob = hist_prob[hist_prob > 0]
     entropia = -np.sum(non_zero_prob * np.log2(non_zero_prob))
-    entropia_norm = min(entropia / 8.0, 1.0)
     
-    # 2. CORRELACIÓN
+    # Anomalía: Medimos la distancia desde una entropía fotográfica natural (7.4)
+    dist_entropia = abs(entropia - 7.4)
+    anomalia_entropia = min(dist_entropia / 1.5, 1.0)
+    
+    # 2. CORRELACIÓN (Normal ~ 0.90 - 0.98)
     pixeles_izq = gray[:, :-1].flatten()
     pixeles_der = gray[:, 1:].flatten()
-    correlacion = np.corrcoef(pixeles_izq, pixeles_der)[0, 1]
-    correlacion_norm = max(0.0, min(correlacion, 1.0))
     
-    # 3. COLOR
+    if len(pixeles_izq) > 0 and len(pixeles_der) > 0:
+        correlacion = np.corrcoef(pixeles_izq, pixeles_der)[0, 1]
+    else:
+        correlacion = 0.95
+        
+    if np.isnan(correlacion):
+        correlacion = 0.95
+        
+    # Anomalía: Desviaciones extremas respecto a correlación natural (0.95)
+    dist_corr = abs(correlacion - 0.95)
+    anomalia_correlacion = min(dist_corr * 12.0, 1.0) 
+    
+    # 3. DISTRIBUCIÓN COLOR (Normal std dev ~ 40 - 70)
     std_r = np.std(img_np[:,:,0])
     std_g = np.std(img_np[:,:,1])
     std_b = np.std(img_np[:,:,2])
     promedio_std = (std_r + std_g + std_b) / 3.0
-    color_norm = min(promedio_std / 75.0, 1.0)
+    
+    # Anomalía: Distancia respecto a contraste natural (55)
+    dist_color = abs(promedio_std - 55.0)
+    anomalia_color = min(dist_color / 50.0, 1.0)
     
     return {
-        "entropia_local": float(entropia_norm),
-        "correlacion_pixeles": float(correlacion_norm),
-        "distribucion_color": float(color_norm)
+        "anomalia_entropia": float(anomalia_entropia),
+        "anomalia_correlacion": float(anomalia_correlacion),
+        "anomalia_color": float(anomalia_color)
     }
 
 @router.post("/analizar-completo")
@@ -142,15 +158,28 @@ async def analisis_pericial_completo(peticion: PeticionImagen):
         else:
             confianza = round(confianza_calibrada, 2)
 
-    # Métricas para radar chart
-    val_patron_ruido = min(round(ruido_prom / 50.0, 2), 1.0)
-    val_fourier = min(round(varianza_sensor / 100.0, 2), 1.0)
-    val_compresion = min(round(dif_max / 255.0, 2), 1.0)
+# --- MÉTRICAS PARA RADAR CHART (Transformadas a Anomalías 0-1) ---
     
+    # 1. ELA Max Diff (Normal < 40, Anomalía > 80)
+    val_compresion = min(max((dif_max - 40) / 60.0, 0.0), 1.0)
+    
+    # 2. ELA Mean (Normal < 5, Anomalía > 15)
+    val_patron_ruido = min(max((ruido_prom - 3) / 12.0, 0.0), 1.0)
+    
+    # 3. Fourier/Laplaciano (Normal > 60 y < 1500)
+    # Detecta si la imagen es antinaturalmente lisa (< 60) o tiene ruido inyectado brutal (> 1500)
+    if varianza_sensor < 60:
+        val_fourier = 1.0 - (varianza_sensor / 60.0) # Muy liso = anomalía
+    elif varianza_sensor > 1500:
+        val_fourier = min((varianza_sensor - 1500) / 2000.0, 1.0) # Ruido inyectado = anomalía
+    else:
+        val_fourier = 0.0 # Rango de cámara sana
+    
+    # 4, 5 y 6. Métricas Heurísticas (Entropía, Correlación, Color)
     metricas_reales = calcular_metricas_heuristicas(imagen)
-    val_entropia = round(metricas_reales["entropia_local"], 2)
-    val_correlacion = round(metricas_reales["correlacion_pixeles"], 2)
-    val_color = round(metricas_reales["distribucion_color"], 2)
+    val_entropia = round(metricas_reales["anomalia_entropia"], 2)
+    val_correlacion = round(metricas_reales["anomalia_correlacion"], 2)
+    val_color = round(metricas_reales["anomalia_color"], 2)
 
     b64_base, b64_thresh, b64_rollout = generar_capas_forenses(res_vit["heatmap"], original_cv)
 
