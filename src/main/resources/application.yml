@@ -1,31 +1,103 @@
+server:
+  port: ${PORT:8080}
+
 spring:
   application:
     name: ve-absoluta-backend
 
+  # ============================================
+  # CONFIGURACIÓN DE BASE DE DATOS (NEON)
+  # ============================================
   datasource:
-    url: ${NEON_DB_URL:jdbc:postgresql://localhost:5432/ve_absoluta}
-    username: ${NEON_DB_USER:postgres}
-    password: ${NEON_DB_PASSWORD:postgres}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ve_absoluta}
+    username: ${DATABASE_USER:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
-ai:
-  service:
-    url: ${AI_SERVICE_URL:http://localhost:8000}
+  # ============================================
+  # MIGRACIONES (Flyway)
+  # ============================================
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    validate-on-migrate: true
 
+  # ============================================
+  # UPLOAD LIMITS - Configuración de Tomcat
+  # ============================================
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# ============================================
+# CLOUDINARY (Object Storage)
+# ============================================
 cloudinary:
   cloud-name: ${CLOUDINARY_CLOUD_NAME}
   api-key: ${CLOUDINARY_API_KEY}
   api-secret: ${CLOUDINARY_API_SECRET}
 
+# ============================================
+# VE ABSOLUTA - INTEGRACIÓN IA
+# ============================================
+ai:
+  service:
+    url: ${AI_SERVICE_URL:https://btnvlscoder-ve-absoluta-api.hf.space/api/v1/detect}
+  model:
+    version: VE_ABSOLUTA_ViT_V2
+  api:
+    version: v2
+
+veabsoluta:
+  ia:
+    threshold: 0.65
+
+inference:
+  mode: cloud
+
+huggingface:
+  endpoint: https://api-inference.huggingface.co/models/btnvlscoder/ve-absoluta-api
+  token: ${HF_TOKEN}
+
+# Configuración de expiración
+minio:
+  url-expiration: 3600
+
+# ============================================
+# ACTUATOR & SWAGGER
+# ============================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+# ============================================
+# LOGGING
+# ============================================
 logging:
   level:
     root: INFO
